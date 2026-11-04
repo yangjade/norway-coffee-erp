@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { ClassroomSim } from "@/components/ClassroomSim";
 import { useApp } from "@/lib/app-context";
 import { roleLabel, roleShortLabel, roleWorkspaceTitle } from "@/lib/roles";
 
@@ -10,8 +11,12 @@ const NAV = [
   { href: "/", label: "首頁" },
   { href: "/customers", label: "客戶" },
   { href: "/products", label: "商品" },
+  { href: "/quotations", label: "報價" },
   { href: "/orders", label: "訂單" },
+  { href: "/quote-to-order", label: "報價轉訂單" },
+  { href: "/inventory", label: "庫存" },
   { href: "/shipping", label: "出貨" },
+  { href: "/receivables", label: "應收" },
   { href: "/settings", label: "使用者設定", adminOnly: true },
 ] as const;
 
@@ -63,70 +68,69 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div
         className={`role-band h-1.5 w-full ${
           isAdmin
-            ? "bg-[linear-gradient(90deg,var(--brand)_0%,var(--brand-mid)_55%,var(--accent-bright)_100%)]"
-            : "bg-[linear-gradient(90deg,var(--accent)_0%,var(--accent-bright)_70%,#d4bc8a_100%)]"
+            ? "bg-[linear-gradient(90deg,var(--mist-blue)_0%,var(--brand-soft)_45%,var(--milk-tea)_100%)]"
+            : "bg-[linear-gradient(90deg,var(--accent-soft)_0%,var(--mist-blue)_55%,var(--brand-soft)_100%)]"
         }`}
         aria-hidden
       />
 
-      <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/92 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3.5 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="font-display text-[1.35rem] font-semibold tracking-[0.06em] text-[var(--brand)] sm:text-[1.65rem]">
+      <header className="app-header sticky top-0 z-20">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3.5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 animate-rise">
+            <p className="brand-wordmark text-[1.55rem] sm:text-[1.85rem]">
               挪威的咖啡
             </p>
-            <p className="mt-0.5 text-xs text-[var(--muted)]">
-              配銷模組 ERP · 首頁 v1 ·{" "}
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-relaxed text-[var(--muted)]">
               <span className="shell-mark font-medium">
                 {roleWorkspaceTitle(currentUser.Role)}
               </span>
-            </p>
-            <p
-              className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] ${
-                hydrated ? "text-[var(--brand)]" : "text-[var(--muted)]"
-              }`}
-              title="同一瀏覽器內各頁共用 Context，並寫入 localStorage"
-              aria-live="polite"
-            >
+              <span className="text-[var(--border)]">·</span>
+              <span>配銷 ERP · 報價到出貨到應收</span>
               <span
-                className={`inline-block h-1.5 w-1.5 ${
-                  savedFlash ? "bg-[var(--accent-bright)]" : "bg-[var(--brand)]"
+                className={`inline-flex items-center gap-1.5 ${
+                  hydrated ? "text-[var(--brand)]" : ""
                 }`}
-              />
-              {savedFlash ? "已儲存於本機" : persistLabel}
-            </p>
+                title="同一瀏覽器內各頁共用資料，並寫入本機儲存"
+                aria-live="polite"
+              >
+                <span
+                  className={`inline-block h-1.5 w-1.5 rounded-full ${
+                    savedFlash
+                      ? "bg-[var(--accent-bright)]"
+                      : "bg-[var(--brand-mid)]"
+                  }`}
+                />
+                {savedFlash ? "已儲存" : persistLabel}
+              </span>
+            </div>
           </div>
 
-          <div
-            className={`w-full max-w-md border px-3.5 py-2.5 sm:w-auto ${
-              isAdmin
-                ? "border-[var(--brand)]/30 bg-[var(--brand-soft)]/55"
-                : "border-[var(--accent)]/40 bg-[var(--accent-soft)]/70"
-            }`}
-          >
+          <div className="role-chip w-full max-w-md px-4 py-3 sm:w-auto">
             <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
-              <span className="sim-dot inline-block h-1.5 w-1.5 bg-[var(--accent)]" />
-              <span className="tracking-[0.08em]">教學用權限模擬</span>
+              <span className="sim-dot inline-block h-1.5 w-1.5 rounded-full bg-[var(--sage)]" />
+              <span className="tracking-[0.06em]">教學用權限模擬</span>
               <span className="text-[var(--border)]">·</span>
               <span>非正式登入</span>
             </div>
-            <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <span className="text-sm font-medium text-[var(--brand-deep)]">
                 {currentUser.User_ID} {currentUser.User_Name}
               </span>
               <span
-                className={`text-xs font-semibold ${
-                  isAdmin ? "text-[var(--brand)]" : "text-[#8a6a1f]"
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+                  isAdmin
+                    ? "bg-[var(--brand-soft)] text-[var(--brand-deep)]"
+                    : "bg-[var(--accent-soft)] text-[var(--wood)]"
                 }`}
               >
                 {roleLabel(currentUser.Role)}
               </span>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <label className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-[var(--muted)] sm:flex-none">
                 <span className="shrink-0">切換身分</span>
                 <select
-                  className="field min-w-0 flex-1 text-sm sm:w-56"
+                  className="field min-w-0 flex-1 text-sm sm:w-52"
                   value={currentUser.User_ID}
                   onChange={(e) => handleSwitch(e.target.value)}
                   aria-label="切換模擬使用者"
@@ -155,23 +159,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     setSwitchMsg(null);
                   }
                 }}
-                className="text-xs text-[var(--muted)] underline-offset-2 transition hover:text-[var(--brand)] hover:underline"
+                className="text-xs text-[var(--muted)] underline-offset-4 transition hover:text-[var(--brand)] hover:underline"
               >
                 重設樣本
               </button>
             </div>
             {switchMsg && (
-              <p className="mt-1.5 text-xs text-[var(--danger)]" role="alert">
+              <p className="mt-2 text-xs text-[var(--danger)]" role="alert">
                 {switchMsg}
               </p>
             )}
           </div>
         </div>
 
-        <nav
-          className="mx-auto flex max-w-6xl gap-0.5 overflow-x-auto px-2 pb-0 sm:px-4"
-          aria-label="主選單"
-        >
+        <nav className="nav-rail" aria-label="主選單">
           {visibleNav.map((item) => {
             const active =
               item.href === "/"
@@ -183,20 +184,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 key={item.href}
                 href={item.href}
                 data-active={active}
-                className={`nav-link whitespace-nowrap px-3.5 py-2.5 text-sm ${
+                className={`nav-link whitespace-nowrap px-3.5 py-2 text-sm ${
                   active
-                    ? "font-medium text-[var(--brand)]"
-                    : "text-[var(--muted)] hover:text-[var(--brand)]"
-                } ${
-                  isSettings
-                    ? "ml-auto border-l border-[var(--border)] pl-4 text-[var(--brand)]"
-                    : ""
-                }`}
+                    ? "text-[var(--brand-deep)]"
+                    : "text-[var(--muted)]"
+                } ${isSettings ? "ml-auto" : ""}`}
               >
                 {item.label}
                 {isSettings && (
-                  <span className="ml-1.5 text-[10px] font-semibold tracking-wide text-[var(--accent)]">
-                    Admin
+                  <span className="ml-1.5 text-[10px] font-medium tracking-wide text-[var(--sage)]">
+                    管理者
                   </span>
                 )}
               </Link>
@@ -204,16 +201,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
           {!isAdmin && (
             <span
-              className="ml-auto hidden items-center px-3 py-2.5 text-[11px] text-[var(--muted)] sm:inline-flex"
+              className="ml-auto hidden items-center px-3 py-2 text-[11px] text-[var(--muted)] sm:inline-flex"
               title="一般使用者看不到使用者設定"
             >
-              使用者設定（無權限）
+              設定（無權限）
             </span>
           )}
         </nav>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-5 sm:py-7">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 py-7 sm:py-10">{children}</main>
+
+      <footer className="mx-auto max-w-6xl px-4 pb-10 pt-2 sm:pb-12">
+        <ClassroomSim />
+      </footer>
     </div>
   );
 }

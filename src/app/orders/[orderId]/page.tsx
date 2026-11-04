@@ -1,8 +1,8 @@
 import OrderDetailClient from "@/components/OrderDetailClient";
-import { initialOrders } from "@/lib/sample-data";
+import { orderStaticIds } from "@/lib/order-static-ids";
 
 export function generateStaticParams() {
-  return initialOrders.map((o) => ({ orderId: o.Order_ID }));
+  return orderStaticIds().map((orderId) => ({ orderId }));
 }
 
 export default function OrderDetailPage() {

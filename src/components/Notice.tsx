@@ -24,8 +24,8 @@ const STYLES: Record<
   },
   info: {
     label: "說明",
-    box: "border-[var(--warn-border)] bg-[var(--warn-bg)]",
-    tag: "text-[var(--brand-deep)] border-[var(--warn-border)] bg-[var(--surface)]",
+    box: "border-[var(--border)] bg-[var(--mist-blue)]/35",
+    tag: "text-[var(--brand-deep)] border-[var(--border)] bg-[var(--surface)]",
   },
   error: {
     label: "載入失敗",
@@ -49,14 +49,17 @@ export function Notice({
 }) {
   const s = STYLES[kind];
   return (
-    <div className={`border px-5 py-5 ${s.box}`}>
+    <div
+      className={`rounded-[var(--radius)] border px-5 py-5 ${s.box}`}
+      role={kind === "error" || kind === "denied" ? "alert" : undefined}
+    >
       <p
-        className={`inline-block border px-2 py-0.5 text-[11px] font-medium tracking-[0.08em] ${s.tag}`}
+        className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium tracking-[0.05em] ${s.tag}`}
       >
         {s.label}
       </p>
       {title && (
-        <p className="mt-3 text-sm font-medium text-[var(--brand-deep)]">
+        <p className="mt-3.5 text-sm font-medium leading-relaxed text-[var(--brand-deep)]">
           {title}
         </p>
       )}
@@ -64,7 +67,9 @@ export function Notice({
         {children}
       </div>
       {footnote && (
-        <p className="mt-2 text-xs text-[var(--muted)] opacity-80">{footnote}</p>
+        <p className="mt-2 text-xs leading-relaxed text-[var(--muted)] opacity-80">
+          {footnote}
+        </p>
       )}
       {showHomeLink && (
         <Link href="/" className="btn-primary mt-5">
@@ -85,19 +90,54 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <div className="brand-rule mb-3" />
-        <h1 className="font-display text-2xl font-semibold tracking-[0.04em] text-[var(--brand)] sm:text-[1.85rem]">
+        <div className="brand-rule mb-3.5" />
+        <p className="eyebrow mb-2.5">挪威的咖啡</p>
+        <h1 className="font-display text-[1.8rem] tracking-[0.04em] text-[var(--brand-deep)] sm:text-[2.15rem]">
           {title}
         </h1>
         {description && (
-          <p className="mt-1.5 text-sm text-[var(--muted)]">{description}</p>
+          <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-[var(--muted)]">
+            {description}
+          </p>
         )}
       </div>
       {actions && (
-        <div className="flex flex-wrap items-center gap-3 text-sm">{actions}</div>
+        <div className="flex flex-wrap items-center gap-2.5 text-sm">{actions}</div>
       )}
+    </div>
+  );
+}
+
+/** 統一載入骨架：柔和過渡，避免空白閃爍 */
+export function LoadingState({
+  title,
+  rows = 4,
+}: {
+  title: string;
+  rows?: number;
+}) {
+  return (
+    <div className="space-y-6 animate-rise" aria-busy="true" aria-live="polite">
+      <PageHeader title={title} description="正在讀取本機資料…" />
+      <div className="filter-bar gap-3">
+        <div className="skeleton-bar h-10 flex-1 min-w-[8rem]" />
+        <div className="skeleton-bar h-10 w-28" />
+        <div className="skeleton-bar h-10 w-24" />
+      </div>
+      <div className="table-shell space-y-3 p-5">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div
+            key={i}
+            className="skeleton-bar h-11 w-full"
+            style={{ opacity: 1 - i * 0.1 }}
+          />
+        ))}
+      </div>
+      <p className="text-xs leading-relaxed text-[var(--muted)]">
+        資料同步中，請稍候。
+      </p>
     </div>
   );
 }
