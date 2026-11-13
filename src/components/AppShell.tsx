@@ -2,18 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
+import {
+  CommandPalette,
+  useCommandPaletteHotkey,
+} from "@/components/CommandPalette";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useApp } from "@/lib/app-context";
+import { isNavActive, NAV_GROUPS } from "@/lib/nav";
 import { roleLabel, roleShortLabel, roleWorkspaceTitle } from "@/lib/roles";
-
-const NAV = [
-  { href: "/", label: "首頁" },
-  { href: "/customers", label: "客戶" },
-  { href: "/products", label: "商品" },
-  { href: "/orders", label: "訂單" },
-  { href: "/shipping", label: "出貨" },
-  { href: "/settings", label: "使用者設定", adminOnly: true },
-] as const;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -28,8 +26,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   } = useApp();
   const [switchMsg, setSwitchMsg] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const [sideOpen, setSideOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const prevSaved = useRef<number | null>(null);
   const isAdmin = currentUser.Role === "Admin";
+
+  useCommandPaletteHotkey(setCmdOpen);
+
+  useEffect(() => {
+    setSideOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!hydrated || lastSavedAt == null) return;
@@ -42,9 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     prevSaved.current = lastSavedAt;
   }, [hydrated, lastSavedAt]);
 
-  const visibleNav = NAV.filter(
-    (item) => !("adminOnly" in item && item.adminOnly) || isAdmin,
-  );
+  const openSearch = useCallback(() => setCmdOpen(true), []);
 
   function handleSwitch(userId: string) {
     const result = switchUser(userId);
@@ -57,76 +62,168 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className={`min-h-screen ${isAdmin ? "role-admin" : "role-staff"}`}
+      className={`erp-root min-h-screen ${isAdmin ? "role-admin" : "role-staff"}`}
       data-role={currentUser.Role}
+      data-prod-feel="erp-chrome-v1"
     >
       <div
-        className={`role-band h-1.5 w-full ${
+        className={`role-band h-1 w-full ${
           isAdmin
-            ? "bg-[linear-gradient(90deg,var(--brand)_0%,var(--brand-mid)_55%,var(--accent-bright)_100%)]"
-            : "bg-[linear-gradient(90deg,var(--accent)_0%,var(--accent-bright)_70%,#d4bc8a_100%)]"
+            ? "bg-[linear-gradient(90deg,var(--mist-blue)_0%,var(--brand-soft)_45%,var(--milk-tea)_100%)]"
+            : "bg-[linear-gradient(90deg,var(--accent-soft)_0%,var(--mist-blue)_55%,var(--brand-soft)_100%)]"
         }`}
         aria-hidden
       />
 
-      <header className="sticky top-0 z-20 border-b border-[var(--border)] bg-[var(--surface)]/92 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3.5 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="font-display text-[1.35rem] font-semibold tracking-[0.06em] text-[var(--brand)] sm:text-[1.65rem]">
+      <div className="erp-frame">
+        {/* Sidebar */}
+        <aside
+          className={`erp-sidebar no-print ${sideOpen ? "is-open" : ""}`}
+          aria-label="模組導覽"
+        >
+          <div className="px-4 pb-3 pt-5">
+            <p className="brand-wordmark text-[1.35rem] leading-tight">
               挪威的咖啡
             </p>
-            <p className="mt-0.5 text-xs text-[var(--muted)]">
-              配銷模組 ERP · 首頁 v1 ·{" "}
-              <span className="shell-mark font-medium">
-                {roleWorkspaceTitle(currentUser.Role)}
-              </span>
-            </p>
-            <p
-              className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] ${
-                hydrated ? "text-[var(--brand)]" : "text-[var(--muted)]"
-              }`}
-              title="同一瀏覽器內各頁共用 Context，並寫入 localStorage"
-              aria-live="polite"
-            >
-              <span
-                className={`inline-block h-1.5 w-1.5 ${
-                  savedFlash ? "bg-[var(--accent-bright)]" : "bg-[var(--brand)]"
-                }`}
-              />
-              {savedFlash ? "已儲存於本機" : persistLabel}
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--muted)]">
+              配銷 ERP · 本機示範
             </p>
           </div>
 
-          <div
-            className={`w-full max-w-md border px-3.5 py-2.5 sm:w-auto ${
-              isAdmin
-                ? "border-[var(--brand)]/30 bg-[var(--brand-soft)]/55"
-                : "border-[var(--accent)]/40 bg-[var(--accent-soft)]/70"
-            }`}
-          >
-            <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
-              <span className="sim-dot inline-block h-1.5 w-1.5 bg-[var(--accent)]" />
-              <span className="tracking-[0.08em]">教學用權限模擬</span>
-              <span className="text-[var(--border)]">·</span>
-              <span>非正式登入</span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="text-sm font-medium text-[var(--brand-deep)]">
-                {currentUser.User_ID} {currentUser.User_Name}
-              </span>
-              <span
-                className={`text-xs font-semibold ${
-                  isAdmin ? "text-[var(--brand)]" : "text-[#8a6a1f]"
-                }`}
+          <nav className="side-nav px-2 pb-6">
+            {NAV_GROUPS.map((group) => {
+              const items = group.items.filter(
+                (item) => !item.adminOnly || isAdmin,
+              );
+              if (items.length === 0) {
+                if (group.id === "system" && !isAdmin) {
+                  return (
+                    <div key={group.id} className="side-group">
+                      <p className="side-group-label">{group.label}</p>
+                      <Link
+                        href="/acceptance/"
+                        data-active={isNavActive(pathname, "/acceptance")}
+                        className="side-link"
+                      >
+                        驗收區
+                      </Link>
+                      <span
+                        className="side-link-disabled"
+                        title="一般使用者看不到使用者設定"
+                      >
+                        設定（無權限）
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              }
+              return (
+                <div key={group.id} className="side-group">
+                  <p className="side-group-label">{group.label}</p>
+                  {items.map((item) => {
+                    const active = isNavActive(pathname, item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href === "/" ? "/" : `${item.href}/`}
+                        data-active={active}
+                        className="side-link"
+                      >
+                        {item.label}
+                        {item.adminOnly && (
+                          <span className="ml-auto text-[10px] text-[var(--sage)]">
+                            管理者
+                          </span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </nav>
+        </aside>
+
+        {sideOpen && (
+          <button
+            type="button"
+            className="sidebar-scrim no-print lg:hidden"
+            aria-label="關閉選單"
+            onClick={() => setSideOpen(false)}
+          />
+        )}
+
+        <div className="erp-main-col">
+          <header className="app-header sticky top-0 z-30">
+            <div className="flex flex-wrap items-center gap-3 px-4 py-3 sm:px-5">
+              <button
+                type="button"
+                className="btn-ghost px-2.5 py-1.5 text-xs lg:hidden"
+                aria-label="開啟選單"
+                onClick={() => setSideOpen(true)}
               >
-                {roleLabel(currentUser.Role)}
-              </span>
+                選單
+              </button>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted)]">
+                  <span className="shell-mark font-medium">
+                    {roleWorkspaceTitle(currentUser.Role)}
+                  </span>
+                  <span className="text-[var(--border)]">·</span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 ${
+                      hydrated ? "text-[var(--brand)]" : ""
+                    }`}
+                    title="同一瀏覽器內各頁共用資料，並寫入本機儲存"
+                    aria-live="polite"
+                  >
+                    <span
+                      className={`inline-block h-1.5 w-1.5 rounded-full ${
+                        savedFlash
+                          ? "bg-[var(--accent-bright)]"
+                          : "bg-[var(--brand-mid)]"
+                      }`}
+                    />
+                    {savedFlash ? "已儲存" : persistLabel}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="search-trigger"
+                onClick={openSearch}
+                data-prod-feel="search-trigger"
+                aria-label="開啟快速搜尋"
+              >
+                <span className="hidden sm:inline">搜尋客戶／報價／訂單…</span>
+                <span className="sm:hidden">搜尋</span>
+                <kbd className="kbd ml-2 hidden sm:inline-flex">⌘K</kbd>
+              </button>
+
+              <div className="role-chip hidden items-center gap-2 px-3 py-2 md:flex">
+                <span className="text-xs font-medium text-[var(--brand-deep)]">
+                  {currentUser.User_Name}
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    isAdmin
+                      ? "bg-[var(--brand-soft)] text-[var(--brand-deep)]"
+                      : "bg-[var(--accent-soft)] text-[var(--wood)]"
+                  }`}
+                >
+                  {roleLabel(currentUser.Role)}
+                </span>
+              </div>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <label className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-[var(--muted)] sm:flex-none">
-                <span className="shrink-0">切換身分</span>
+
+            <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border-soft)] px-4 py-2 sm:px-5">
+              <label className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--muted)]">
+                <span className="shrink-0">身分</span>
                 <select
-                  className="field min-w-0 flex-1 text-sm sm:w-56"
+                  className="field min-w-0 py-1 text-xs sm:w-48"
                   value={currentUser.User_ID}
                   onChange={(e) => handleSwitch(e.target.value)}
                   aria-label="切換模擬使用者"
@@ -145,75 +242,64 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </label>
               <button
                 type="button"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      "重設樣本會清除本機已修改資料，還原為初始樣本。確定？",
-                    )
-                  ) {
-                    resetDemoData();
-                    setSwitchMsg(null);
-                  }
-                }}
-                className="text-xs text-[var(--muted)] underline-offset-2 transition hover:text-[var(--brand)] hover:underline"
+                onClick={() => setResetOpen(true)}
+                className="text-xs text-[var(--muted)] underline-offset-4 transition hover:text-[var(--brand)] hover:underline"
               >
                 重設樣本
               </button>
+              {switchMsg && (
+                <p className="text-xs text-[var(--danger)]" role="alert">
+                  {switchMsg}
+                </p>
+              )}
+              <span className="ml-auto hidden text-[11px] text-[var(--muted)] sm:inline">
+                非正式登入 · 教學權限模擬
+              </span>
             </div>
-            {switchMsg && (
-              <p className="mt-1.5 text-xs text-[var(--danger)]" role="alert">
-                {switchMsg}
-              </p>
-            )}
+          </header>
+
+          <div className="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-5">
+            <Breadcrumbs />
           </div>
-        </div>
 
-        <nav
-          className="mx-auto flex max-w-6xl gap-0.5 overflow-x-auto px-2 pb-0 sm:px-4"
-          aria-label="主選單"
-        >
-          {visibleNav.map((item) => {
-            const active =
-              item.href === "/"
-                ? pathname === "/"
-                : pathname.startsWith(item.href);
-            const isSettings = item.href === "/settings";
-            return (
+          <main className="mx-auto w-full max-w-6xl px-4 py-5 sm:px-5 sm:py-7">
+            {children}
+          </main>
+
+          <footer className="mx-auto max-w-6xl px-4 pb-8 pt-2 text-xs text-[var(--muted)] sm:px-5 no-print">
+            <p>
+              挪威的咖啡配銷 ERP · 建議流程：報價 → 轉訂單 → 出貨 → 庫存／應收 →
+              收款。課堂驗收請至{" "}
               <Link
-                key={item.href}
-                href={item.href}
-                data-active={active}
-                className={`nav-link whitespace-nowrap px-3.5 py-2.5 text-sm ${
-                  active
-                    ? "font-medium text-[var(--brand)]"
-                    : "text-[var(--muted)] hover:text-[var(--brand)]"
-                } ${
-                  isSettings
-                    ? "ml-auto border-l border-[var(--border)] pl-4 text-[var(--brand)]"
-                    : ""
-                }`}
+                href="/acceptance/"
+                className="text-[var(--brand)] underline-offset-2 hover:underline"
               >
-                {item.label}
-                {isSettings && (
-                  <span className="ml-1.5 text-[10px] font-semibold tracking-wide text-[var(--accent)]">
-                    Admin
-                  </span>
-                )}
+                驗收區
               </Link>
-            );
-          })}
-          {!isAdmin && (
-            <span
-              className="ml-auto hidden items-center px-3 py-2.5 text-[11px] text-[var(--muted)] sm:inline-flex"
-              title="一般使用者看不到使用者設定"
-            >
-              使用者設定（無權限）
-            </span>
-          )}
-        </nav>
-      </header>
+              。
+            </p>
+            <p className="mt-1 opacity-70" data-prod-feel-marker="prod-feel-20261113">
+              prod-feel-20261113
+            </p>
+          </footer>
+        </div>
+      </div>
 
-      <main className="mx-auto max-w-6xl px-4 py-5 sm:py-7">{children}</main>
+      <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+
+      <ConfirmDialog
+        open={resetOpen}
+        title="重設樣本資料？"
+        message="會清除本機已修改資料，還原為較完整的示範資料量（含足夠列表分頁列數）。此操作無法復原。"
+        confirmLabel="重設樣本"
+        danger
+        onCancel={() => setResetOpen(false)}
+        onConfirm={() => {
+          resetDemoData();
+          setSwitchMsg(null);
+          setResetOpen(false);
+        }}
+      />
     </div>
   );
 }

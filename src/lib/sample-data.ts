@@ -1,51 +1,650 @@
 import type {
   AppUser,
   Customer,
+  Payment,
   Product,
+  Quotation,
+  QuotationDetail,
+  Receivable,
   SalesOrder,
   SalesOrderDetail,
+  StockMove,
 } from "./types";
+import {
+  buildExtraCustomers,
+  buildExtraProducts,
+  buildVolumeDocuments,
+} from "./sample-data-volume";
 
 /** 統計基準日（Asia/Taipei）— KPI 必須由此計算，不可寫死 */
 export const BASE_DATE = "2026-10-13";
 
+/**
+ * 挪威的咖啡客戶主檔（≥10；零售／批發／企業各 ≥2）
+ * 保留 C001–C005 與既有 Sales_Order 關聯；茶業範例改寫為精品咖啡情境。
+ */
 export const customers: Customer[] = [
-  { Customer_ID: "C001", Customer_Name: "北歐生活館", Contact: "林經理", Region: "台北", Status: "啟用" },
-  { Customer_ID: "C002", Customer_Name: "峽灣咖啡廳", Contact: "陳店長", Region: "新北", Status: "啟用" },
-  { Customer_ID: "C003", Customer_Name: "松林選物店", Contact: "黃小姐", Region: "台中", Status: "啟用" },
-  { Customer_ID: "C004", Customer_Name: "極光餐飲集團", Contact: "吳採購", Region: "高雄", Status: "啟用" },
-  { Customer_ID: "C005", Customer_Name: "森林辦公咖啡", Contact: "張主任", Region: "桃園", Status: "啟用" },
+  {
+    Customer_ID: "C001",
+    Customer_Name: "北歐生活館",
+    Customer_Type: "零售",
+    Phone: "02-2555-0101",
+    Email: "shop@nordic-living.tw",
+    Payment_Terms: "現結",
+    Credit_Limit: 0,
+    Is_Active: true,
+    Notes: "門市零售；偏好淺焙豆",
+    Contact: "林經理",
+    Created_At: "2026-09-01T02:00:00.000Z",
+    Updated_At: "2026-09-01T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C002",
+    Customer_Name: "峽灣咖啡廳",
+    Customer_Type: "批發",
+    Phone: "02-2899-2202",
+    Email: "buyer@fjordcafe.tw",
+    Payment_Terms: "月結30天",
+    Credit_Limit: 20000,
+    Is_Active: true,
+    Notes: "連鎖咖啡廳批發；月結額度 20,000",
+    Contact: "陳店長",
+    Created_At: "2026-09-01T02:00:00.000Z",
+    Updated_At: "2026-09-01T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C003",
+    Customer_Name: "松林企業餐飲",
+    Customer_Type: "企業",
+    Phone: "04-2320-3303",
+    Email: "procurement@pinecorp.tw",
+    Payment_Terms: "月結30天",
+    Credit_Limit: 50000,
+    Is_Active: true,
+    Notes: "企業團膳／辦公室咖啡供應",
+    Contact: "黃小姐",
+    Created_At: "2026-09-02T02:00:00.000Z",
+    Updated_At: "2026-09-02T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C004",
+    Customer_Name: "極光選豆小站",
+    Customer_Type: "零售",
+    Phone: "07-3300-4404",
+    Email: "",
+    Payment_Terms: "現結",
+    Credit_Limit: 0,
+    Is_Active: true,
+    Notes: "個人愛好者零售",
+    Contact: "吳先生",
+    Created_At: "2026-09-03T02:00:00.000Z",
+    Updated_At: "2026-09-03T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C005",
+    Customer_Name: "森林辦公咖啡",
+    Customer_Type: "批發",
+    Phone: "03-3555-5505",
+    Email: "ops@forestoffice.tw",
+    Payment_Terms: "現結",
+    Credit_Limit: 0,
+    Is_Active: true,
+    Notes: "辦公室咖啡角；現結進貨",
+    Contact: "張主任",
+    Created_At: "2026-09-04T02:00:00.000Z",
+    Updated_At: "2026-09-04T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C006",
+    Customer_Name: "奧斯陸烘焙工坊",
+    Customer_Type: "批發",
+    Phone: "02-2777-6606",
+    Email: "order@oslo-roast.tw",
+    Payment_Terms: "月結30天",
+    Credit_Limit: 15000,
+    Is_Active: true,
+    Notes: "烘焙工坊原料批發",
+    Contact: "周主廚",
+    Created_At: "2026-09-10T02:00:00.000Z",
+    Updated_At: "2026-09-10T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C007",
+    Customer_Name: "北極光旅宿集團",
+    Customer_Type: "企業",
+    Phone: "02-2500-7707",
+    Email: "fnb@aurora-hotels.tw",
+    Payment_Terms: "月結30天",
+    Credit_Limit: 80000,
+    Is_Active: true,
+    Notes: "旅宿早餐與大廳咖啡",
+    Contact: "許採購",
+    Created_At: "2026-09-12T02:00:00.000Z",
+    Updated_At: "2026-09-12T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C008",
+    Customer_Name: "霧嶼手沖館",
+    Customer_Type: "零售",
+    Phone: "06-2200-8808",
+    Email: "hello@mistisland.tw",
+    Payment_Terms: "現結",
+    Credit_Limit: 0,
+    Is_Active: true,
+    Notes: "手沖體驗館零售客",
+    Contact: "蔡店長",
+    Created_At: "2026-09-15T02:00:00.000Z",
+    Updated_At: "2026-09-15T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C009",
+    Customer_Name: "雪松生鮮超市",
+    Customer_Type: "批發",
+    Phone: "04-2460-9909",
+    Email: "grocery@cedar-mart.tw",
+    Payment_Terms: "月結30天",
+    Credit_Limit: 30000,
+    Is_Active: true,
+    Notes: "超市咖啡豆貨架批發",
+    Contact: "鄭課長",
+    Created_At: "2026-09-18T02:00:00.000Z",
+    Updated_At: "2026-09-18T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C010",
+    Customer_Name: "峽灣科技股份有限公司",
+    Customer_Type: "企業",
+    Phone: "02-2655-1010",
+    Email: "office@fjordtech.tw",
+    Payment_Terms: "月結30天",
+    Credit_Limit: 40000,
+    Is_Active: true,
+    Notes: "科技業辦公室咖啡契約",
+    Contact: "簡總務",
+    Created_At: "2026-09-20T02:00:00.000Z",
+    Updated_At: "2026-09-20T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C011",
+    Customer_Name: "苔原禮盒專賣",
+    Customer_Type: "零售",
+    Phone: "02-2366-1111",
+    Email: "",
+    Payment_Terms: "現結",
+    Credit_Limit: 0,
+    Is_Active: false,
+    Notes: "禮盒季節客；已停用（保留歷史）",
+    Contact: "何小姐",
+    Created_At: "2026-08-01T02:00:00.000Z",
+    Updated_At: "2026-10-01T02:00:00.000Z",
+  },
+  {
+    Customer_ID: "C012",
+    Customer_Name: "維京共作空間",
+    Customer_Type: "企業",
+    Phone: "02-2711-1212",
+    Email: "cafe@viking-cowork.tw",
+    Payment_Terms: "現結",
+    Credit_Limit: 0,
+    Is_Active: true,
+    Notes: "共作空間現結補貨",
+    Contact: "盧經理",
+    Created_At: "2026-09-25T02:00:00.000Z",
+    Updated_At: "2026-09-25T02:00:00.000Z",
+  },
 ];
 
+/** 基準資料：C001–C005（與 SO001–SO005 對齊） */
+export const baselineCustomers: Customer[] = customers.slice(0, 5).map((c) => ({
+  ...c,
+}));
+
+/** 展示資料：C001–C010（挪威的咖啡情境，不含停用示範） */
+export const demoCustomers: Customer[] = customers
+  .slice(0, 10)
+  .map((c) => ({ ...c, Is_Active: true }));
+
+/**
+ * 商品主檔：保留 P001–P003 名稱／牌價以護 SO 回歸；
+ * 擴充 P004–P010 咖啡濾掛／飲品／甜點／禮盒（非茶業名）。
+ * List_Price＝主檔牌價；Cost≈牌價 45–55% 教學占位。
+ */
 export const products: Product[] = [
-  { Product_ID: "P001", Product_Name: "挪威淺焙精品豆", Category: "咖啡豆", Unit_Price: 1800, Unit: "包", Status: "上架" },
-  { Product_ID: "P002", Product_Name: "日曬耶加雪菲", Category: "咖啡豆", Unit_Price: 600, Unit: "包", Status: "上架" },
-  { Product_ID: "P003", Product_Name: "冷萃濃縮液", Category: "飲品原料", Unit_Price: 800, Unit: "瓶", Status: "上架" },
+  {
+    Product_ID: "P001",
+    Product_Name: "挪威淺焙精品豆",
+    Category: "咖啡豆",
+    Unit: "包",
+    List_Price: 1800,
+    Cost: 900,
+    On_Hand: 79,
+    Is_Active: true,
+    Description: "北歐淺焙風味豆，SO 基準品",
+  },
+  {
+    Product_ID: "P002",
+    Product_Name: "日曬耶加雪菲",
+    Category: "咖啡豆",
+    Unit: "包",
+    List_Price: 600,
+    Cost: 300,
+    On_Hand: 58,
+    Is_Active: true,
+    Description: "果香日曬處理",
+  },
+  {
+    Product_ID: "P003",
+    Product_Name: "冷萃濃縮液",
+    Category: "飲品原料",
+    Unit: "瓶",
+    List_Price: 800,
+    Cost: 400,
+    On_Hand: 40,
+    Is_Active: true,
+    Description: "冷萃基底濃縮",
+  },
+  {
+    Product_ID: "P004",
+    Product_Name: "藍山風味 濾掛式咖啡",
+    Category: "濾掛",
+    Unit: "盒",
+    List_Price: 380,
+    Cost: 190,
+    On_Hand: 120,
+    Is_Active: true,
+    Description: "單杯濾掛 10 入",
+  },
+  {
+    Product_ID: "P005",
+    Product_Name: "美式咖啡",
+    Category: "飲品",
+    Unit: "杯",
+    List_Price: 90,
+    Cost: 35,
+    On_Hand: 200,
+    Is_Active: true,
+    Description: "店內現做美式",
+  },
+  {
+    Product_ID: "P006",
+    Product_Name: "拿鐵",
+    Category: "飲品",
+    Unit: "杯",
+    List_Price: 130,
+    Cost: 50,
+    On_Hand: 180,
+    Is_Active: true,
+    Description: "義式濃縮＋鮮奶",
+  },
+  {
+    Product_ID: "P007",
+    Product_Name: "本日蛋糕",
+    Category: "甜點",
+    Unit: "份",
+    List_Price: 120,
+    Cost: 55,
+    On_Hand: 50,
+    Is_Active: true,
+    Description: "每日手作切片",
+  },
+  {
+    Product_ID: "P008",
+    Product_Name: "挪威禮盒 雙豆組",
+    Category: "禮盒",
+    Unit: "盒",
+    List_Price: 2200,
+    Cost: 1100,
+    On_Hand: 30,
+    Is_Active: true,
+    Description: "淺焙＋耶加雙豆禮盒",
+  },
+  {
+    Product_ID: "P009",
+    Product_Name: "單品手沖體驗券",
+    Category: "飲品",
+    Unit: "份",
+    List_Price: 250,
+    Cost: 80,
+    On_Hand: 100,
+    Is_Active: true,
+    Description: "單杯手沖體驗",
+  },
+  {
+    Product_ID: "P010",
+    Product_Name: "季節限定濾掛（停用示範）",
+    Category: "濾掛",
+    Unit: "盒",
+    List_Price: 420,
+    Cost: 210,
+    On_Hand: 0,
+    Is_Active: false,
+    Description: "已下架季節款；不可入新報價",
+  },
 ];
 
-/** 可變動的訂單狀態（供教學測試 T05）；金額仍由明細推導核對 */
+/** 報價種子：覆蓋 Draft／Sent／Accepted；明細 Unit_Price 為快照 */
+export const initialQuotations: Quotation[] = [
+  {
+    Quote_ID: "Q001",
+    Customer_ID: "C002",
+    Quote_Date: "2026-10-20",
+    Valid_Until: "2026-11-03",
+    Status: "Sent",
+    Discount_Amount: 400,
+    Tax_Rate: 0.05,
+    Subtotal: 10400,
+    Tax_Amount: 500,
+    Total: 10500,
+    Notes: "峽灣咖啡廳批發詢價（Sent 鎖定金額）",
+    Created_At: "2026-10-20T02:00:00.000Z",
+    Updated_At: "2026-10-20T04:00:00.000Z",
+  },
+  {
+    Quote_ID: "Q004",
+    Customer_ID: "C003",
+    Quote_Date: "2026-09-01",
+    Valid_Until: "2026-09-15",
+    Status: "Sent",
+    Discount_Amount: 0,
+    Tax_Rate: 0.05,
+    Subtotal: 1140,
+    Tax_Amount: 57,
+    Total: 1197,
+    Notes: "逾期示範：載入時應自動標 Expired",
+    Created_At: "2026-09-01T02:00:00.000Z",
+    Updated_At: "2026-09-01T04:00:00.000Z",
+  },
+  {
+    Quote_ID: "Q002",
+    Customer_ID: "C001",
+    Quote_Date: "2026-10-25",
+    Valid_Until: "2026-11-08",
+    Status: "Draft",
+    Discount_Amount: 0,
+    Tax_Rate: 0.05,
+    Subtotal: 1990,
+    Tax_Amount: 100,
+    Total: 2090,
+    Notes: "北歐生活館草稿報價",
+    Created_At: "2026-10-25T03:00:00.000Z",
+    Updated_At: "2026-10-25T03:00:00.000Z",
+  },
+  {
+    Quote_ID: "Q003",
+    Customer_ID: "C004",
+    Quote_Date: "2026-10-10",
+    Valid_Until: "2026-10-24",
+    Status: "Accepted",
+    Discount_Amount: 200,
+    Tax_Rate: 0.05,
+    Subtotal: 4400,
+    Tax_Amount: 210,
+    Total: 4410,
+    Notes: "極光餐飲已接受",
+    Created_At: "2026-10-10T02:00:00.000Z",
+    Updated_At: "2026-10-12T08:00:00.000Z",
+  },
+];
+
+export const initialQuotationDetails: QuotationDetail[] = [
+  // Q001: 10×P001@800 + 2×P008@1200 = 8000+2400=10400；折扣400；稅基10000；稅500；總10500
+  {
+    Quote_ID: "Q001",
+    Line_No: 1,
+    Product_ID: "P001",
+    Product_Name_Snapshot: "挪威淺焙精品豆",
+    Qty: 10,
+    Unit_Price: 800,
+    Line_Amount: 8000,
+  },
+  {
+    Quote_ID: "Q001",
+    Line_No: 2,
+    Product_ID: "P008",
+    Product_Name_Snapshot: "挪威禮盒 雙豆組",
+    Qty: 2,
+    Unit_Price: 1200,
+    Line_Amount: 2400,
+  },
+  // Q002 Draft: P004×3@380 + P005×5@90 + P007×2@120 = 1140+450+240=1990
+  {
+    Quote_ID: "Q002",
+    Line_No: 1,
+    Product_ID: "P004",
+    Product_Name_Snapshot: "藍山風味 濾掛式咖啡",
+    Qty: 3,
+    Unit_Price: 380,
+    Line_Amount: 1140,
+  },
+  {
+    Quote_ID: "Q002",
+    Line_No: 2,
+    Product_ID: "P005",
+    Product_Name_Snapshot: "美式咖啡",
+    Qty: 5,
+    Unit_Price: 90,
+    Line_Amount: 450,
+  },
+  {
+    Quote_ID: "Q002",
+    Line_No: 3,
+    Product_ID: "P007",
+    Product_Name_Snapshot: "本日蛋糕",
+    Qty: 2,
+    Unit_Price: 120,
+    Line_Amount: 240,
+  },
+  // Q003: P001×2@1800 + P003×1@800 = 3600+800=4400；折扣200；稅基4200；稅210；總4410
+  {
+    Quote_ID: "Q003",
+    Line_No: 1,
+    Product_ID: "P001",
+    Product_Name_Snapshot: "挪威淺焙精品豆",
+    Qty: 2,
+    Unit_Price: 1800,
+    Line_Amount: 3600,
+  },
+  {
+    Quote_ID: "Q003",
+    Line_No: 2,
+    Product_ID: "P003",
+    Product_Name_Snapshot: "冷萃濃縮液",
+    Qty: 1,
+    Unit_Price: 800,
+    Line_Amount: 800,
+  },
+  {
+    Quote_ID: "Q004",
+    Line_No: 1,
+    Product_ID: "P004",
+    Product_Name_Snapshot: "藍山風味 濾掛式咖啡",
+    Qty: 3,
+    Unit_Price: 380,
+    Line_Amount: 1140,
+  },
+];
+
+
+/** 可變動的訂單狀態（供教學測試）；金額仍由明細推導核對 */
 export const initialOrders: SalesOrder[] = [
-  { Order_ID: "SO001", Order_Date: "2026-10-13", Customer_ID: "C001", Order_Status: "處理中", Total_Amount: 4200 },
-  { Order_ID: "SO002", Order_Date: "2026-10-13", Customer_ID: "C002", Order_Status: "待確認", Total_Amount: 1800 },
-  { Order_ID: "SO003", Order_Date: "2026-10-13", Customer_ID: "C003", Order_Status: "已出貨", Total_Amount: 3000 },
-  { Order_ID: "SO004", Order_Date: "2026-10-13", Customer_ID: "C004", Order_Status: "已取消", Total_Amount: 2400 },
-  { Order_ID: "SO005", Order_Date: "2026-10-12", Customer_ID: "C005", Order_Status: "處理中", Total_Amount: 1600 },
+  {
+    Order_ID: "SO001",
+    Order_Date: "2026-10-13",
+    Customer_ID: "C001",
+    Order_Status: "處理中",
+    Total_Amount: 4200,
+  },
+  {
+    Order_ID: "SO002",
+    Order_Date: "2026-10-13",
+    Customer_ID: "C002",
+    Order_Status: "待確認",
+    Total_Amount: 1800,
+  },
+  {
+    Order_ID: "SO003",
+    Order_Date: "2026-10-13",
+    Customer_ID: "C003",
+    Order_Status: "已出貨",
+    Total_Amount: 3000,
+    Stock_Deducted: true,
+  },
+  {
+    Order_ID: "SO004",
+    Order_Date: "2026-10-13",
+    Customer_ID: "C004",
+    Order_Status: "已取消",
+    Total_Amount: 2400,
+  },
+  {
+    Order_ID: "SO005",
+    Order_Date: "2026-10-12",
+    Customer_ID: "C005",
+    Order_Status: "處理中",
+    Total_Amount: 1600,
+  },
 ];
 
 export const orderDetails: SalesOrderDetail[] = [
-  { Detail_ID: "D001", Order_ID: "SO001", Product_ID: "P001", Qty: 2, Unit_Price: 1800, Discount: 1, Subtotal: 3600 },
-  { Detail_ID: "D002", Order_ID: "SO001", Product_ID: "P002", Qty: 1, Unit_Price: 600, Discount: 1, Subtotal: 600 },
-  { Detail_ID: "D003", Order_ID: "SO002", Product_ID: "P001", Qty: 1, Unit_Price: 1800, Discount: 1, Subtotal: 1800 },
-  { Detail_ID: "D004", Order_ID: "SO003", Product_ID: "P001", Qty: 1, Unit_Price: 1800, Discount: 1, Subtotal: 1800 },
-  { Detail_ID: "D005", Order_ID: "SO003", Product_ID: "P002", Qty: 2, Unit_Price: 600, Discount: 1, Subtotal: 1200 },
-  { Detail_ID: "D006", Order_ID: "SO004", Product_ID: "P003", Qty: 3, Unit_Price: 800, Discount: 1, Subtotal: 2400 },
-  { Detail_ID: "D007", Order_ID: "SO005", Product_ID: "P003", Qty: 2, Unit_Price: 800, Discount: 1, Subtotal: 1600 },
+  {
+    Detail_ID: "D001",
+    Order_ID: "SO001",
+    Product_ID: "P001",
+    Qty: 2,
+    Unit_Price: 1800,
+    Discount: 1,
+    Subtotal: 3600,
+  },
+  {
+    Detail_ID: "D002",
+    Order_ID: "SO001",
+    Product_ID: "P002",
+    Qty: 1,
+    Unit_Price: 600,
+    Discount: 1,
+    Subtotal: 600,
+  },
+  {
+    Detail_ID: "D003",
+    Order_ID: "SO002",
+    Product_ID: "P001",
+    Qty: 1,
+    Unit_Price: 1800,
+    Discount: 1,
+    Subtotal: 1800,
+  },
+  {
+    Detail_ID: "D004",
+    Order_ID: "SO003",
+    Product_ID: "P001",
+    Qty: 1,
+    Unit_Price: 1800,
+    Discount: 1,
+    Subtotal: 1800,
+  },
+  {
+    Detail_ID: "D005",
+    Order_ID: "SO003",
+    Product_ID: "P002",
+    Qty: 2,
+    Unit_Price: 600,
+    Discount: 1,
+    Subtotal: 1200,
+  },
+  {
+    Detail_ID: "D006",
+    Order_ID: "SO004",
+    Product_ID: "P003",
+    Qty: 3,
+    Unit_Price: 800,
+    Discount: 1,
+    Subtotal: 2400,
+  },
+  {
+    Detail_ID: "D007",
+    Order_ID: "SO005",
+    Product_ID: "P003",
+    Qty: 2,
+    Unit_Price: 800,
+    Discount: 1,
+    Subtotal: 1600,
+  },
 ];
 
 export const initialUsers: AppUser[] = [
   { User_ID: "U001", User_Name: "管理者甲", Role: "Admin", Is_Active: true },
   { User_ID: "U002", User_Name: "業務乙", Role: "Staff", Is_Active: true },
 ];
+
+/** 第 10 週：SO003 出貨已扣庫示範 */
+export const initialStockMoves: StockMove[] = [
+  {
+    Move_ID: "M001",
+    Product_ID: "P001",
+    Qty: -1,
+    Reason: "出貨扣庫",
+    Ref_Order_ID: "SO003",
+    Move_Date: "2026-10-13",
+    Note: "訂單 SO003 出貨",
+  },
+  {
+    Move_ID: "M002",
+    Product_ID: "P002",
+    Qty: -2,
+    Reason: "出貨扣庫",
+    Ref_Order_ID: "SO003",
+    Move_Date: "2026-10-13",
+    Note: "訂單 SO003 出貨",
+  },
+];
+
+/** 第 12 週：已出貨 SO003 產生應收（未收款） */
+export const initialReceivables: Receivable[] = [
+  {
+    AR_ID: "AR001",
+    Order_ID: "SO003",
+    Customer_ID: "C003",
+    Invoice_Date: "2026-10-13",
+    Amount: 3000,
+    Paid_Amount: 0,
+    Status: "未收",
+    Notes: "由訂單 SO003 出貨產生",
+  },
+];
+
+export const initialPayments: Payment[] = [];
+
+/** 擴充至可分頁體量（客戶／商品／訂單／報價／應收） */
+customers.push(...buildExtraCustomers(customers));
+products.push(...buildExtraProducts(products));
+
+const volumeDocs = buildVolumeDocuments({
+  customers,
+  products,
+  baseOrders: initialOrders,
+  baseOrderDetails: orderDetails,
+  baseQuotes: initialQuotations,
+  baseQuoteDetails: initialQuotationDetails,
+  baseReceivables: initialReceivables,
+  basePayments: initialPayments,
+  baseMoves: initialStockMoves,
+  baseDate: BASE_DATE,
+});
+
+initialOrders.length = 0;
+initialOrders.push(...volumeDocs.orders);
+orderDetails.length = 0;
+orderDetails.push(...volumeDocs.orderDetails);
+initialQuotations.length = 0;
+initialQuotations.push(...volumeDocs.quotations);
+initialQuotationDetails.length = 0;
+initialQuotationDetails.push(...volumeDocs.quotationDetails);
+initialReceivables.length = 0;
+initialReceivables.push(...volumeDocs.receivables);
+initialPayments.length = 0;
+initialPayments.push(...volumeDocs.payments);
+initialStockMoves.length = 0;
+initialStockMoves.push(...volumeDocs.stockMoves);
 
 export function customerName(id: string): string {
   return customers.find((c) => c.Customer_ID === id)?.Customer_Name ?? id;
