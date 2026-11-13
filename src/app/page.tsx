@@ -1,45 +1,97 @@
 "use client";
 
 import Link from "next/link";
-import { useApp } from "@/lib/app-context";
-import { BASE_DATE } from "@/lib/sample-data";
-import { formatTwd } from "@/lib/format";
-import { StatusBadge } from "@/components/StatusBadge";
+import { ActivityTimeline, useRecentActivity } from "@/components/ActivityTimeline";
 import { Notice } from "@/components/Notice";
+import { StatusBadge } from "@/components/StatusBadge";
+import { useApp } from "@/lib/app-context";
+import { formatTwd } from "@/lib/format";
 import { roleLabel, roleWorkspaceTitle } from "@/lib/roles";
+import { BASE_DATE } from "@/lib/sample-data";
 
 export default function HomePage() {
-  const { kpi, orders, currentUser, users, customerName, persistLabel } =
-    useApp();
+  const {
+    kpi,
+    orders,
+    quotations,
+    receivables,
+    currentUser,
+    users,
+    customerName,
+    persistLabel,
+  } = useApp();
   const isAdmin = currentUser.Role === "Admin";
+  const activity = useRecentActivity(10);
 
   const pending = [...orders]
     .filter((o) => o.Order_Status === "待確認" || o.Order_Status === "處理中")
     .sort((a, b) => b.Order_Date.localeCompare(a.Order_Date));
 
-  const recent = [...orders]
-    .sort((a, b) => {
-      const d = b.Order_Date.localeCompare(a.Order_Date);
-      return d !== 0 ? d : b.Order_ID.localeCompare(a.Order_ID);
-    })
-    .slice(0, 5);
+  const draftQuotes = quotations.filter((q) => q.Status === "Draft");
+  const overdueAr = receivables.filter((r) => {
+    if (r.Status === "已結清" || r.Status === "已作廢") return false;
+    return r.Invoice_Date < BASE_DATE && r.Paid_Amount < r.Amount;
+  });
+
+  const weekAgo = [...orders].filter((o) => {
+    const d = o.Order_Date;
+    return d < BASE_DATE && d >= "2026-10-06" && o.Order_Status !== "已取消";
+  });
+  const todayAmt = kpi.todayValidOrderAmount;
+  const weekAmt = weekAgo.reduce((s, o) => s + o.Total_Amount, 0);
+  const weekAvg = weekAgo.length ? weekAmt / Math.max(weekAgo.length, 1) : 0;
+  const amtDelta =
+    weekAvg > 0 ? Math.round(((todayAmt - weekAvg) / weekAvg) * 100) : 0;
+
+  const pendingDelta = pending.length - Math.max(1, Math.round(orders.length * 0.15));
 
   const kpis = [
-    { label: "客戶數", value: String(kpi.customerCount), unit: "位" },
-    { label: "今日有效訂單", value: String(kpi.todayValidOrderCount), unit: "筆" },
+    {
+      label: "客戶數",
+      value: String(kpi.customerCount),
+      unit: "位",
+      delta: `主檔 ${kpi.customerCount} 筆`,
+      up: true as boolean | null,
+    },
+    {
+      label: "今日有效訂單",
+      value: String(kpi.todayValidOrderCount),
+      unit: "筆",
+      delta:
+        weekAgo.length > 0
+          ? `近一週日均約 ${(weekAgo.length / 7).toFixed(1)} 筆`
+          : "尚無近一週對照",
+      up: kpi.todayValidOrderCount >= weekAgo.length / 7,
+    },
     {
       label: "今日有效金額",
       value: formatTwd(kpi.todayValidOrderAmount),
       unit: "元",
+      delta:
+        weekAvg > 0
+          ? `較近一週單筆均額 ${amtDelta >= 0 ? "+" : ""}${amtDelta}%`
+          : "尚無均額對照",
+      up: amtDelta >= 0,
     },
-    { label: "待出貨訂單", value: String(kpi.pendingShipmentCount), unit: "筆" },
+    {
+      label: "待出貨訂單",
+      value: String(kpi.pendingShipmentCount),
+      unit: "筆",
+      delta:
+        pendingDelta === 0
+          ? "與平常水位接近"
+          : pendingDelta > 0
+            ? `偏高 ${pendingDelta} 筆`
+            : `偏低 ${Math.abs(pendingDelta)} 筆`,
+      up: pendingDelta <= 0,
+    },
   ];
 
   const activeStaff = users.filter((u) => u.Role === "Staff" && u.Is_Active).length;
   const inactiveStaff = users.filter((u) => u.Role === "Staff" && !u.Is_Active).length;
 
   return (
-    <div className="space-y-8 sm:space-y-10">
+    <div className="space-y-8 sm:space-y-10" data-prod-feel="live-dashboard">
       <section className="animate-rise">
         <div className="brand-rule mb-3.5" />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -55,10 +107,36 @@ export default function HomePage() {
           </div>
           <p className="max-w-sm border-l-2 border-[var(--mist-blue)] pl-4 text-sm leading-relaxed text-[var(--muted)]">
             {isAdmin
-              ? "管理者視角：掌握營運指標、人員啟用與各模組入口。"
-              : "員工視角：查客戶／商品／訂單，跟催待出貨；不含人員設定。"}
+              ? "管理者視角：掌握營運指標、待辦與人員設定。"
+              : "員工視角：查客戶／商品／訂單，跟催待出貨與應收；不含人員設定。"}
           </p>
         </div>
+      </section>
+
+      <section
+        className="animate-rise-2 flex flex-wrap gap-2"
+        aria-label="待辦捷徑"
+      >
+        <Link href="/shipping/" className="shortcut-chip">
+          待出貨 <strong>{pending.length}</strong>
+        </Link>
+        <Link href="/receivables/" className="shortcut-chip">
+          逾期應收 <strong>{overdueAr.length}</strong>
+        </Link>
+        <Link href="/quotations/?status=Draft" className="shortcut-chip">
+          草稿報價 <strong>{draftQuotes.length}</strong>
+        </Link>
+        <button
+          type="button"
+          className="shortcut-chip"
+          onClick={() => {
+            document
+              .querySelector<HTMLButtonElement>('[data-prod-feel="search-trigger"]')
+              ?.click();
+          }}
+        >
+          快速搜尋 ⌘K
+        </button>
       </section>
 
       <section
@@ -84,6 +162,9 @@ export default function HomePage() {
                 {k.unit}
               </span>
             </p>
+            <p className="kpi-delta" data-up={k.up ? "true" : "false"}>
+              {k.delta}
+            </p>
           </div>
         ))}
       </section>
@@ -95,7 +176,7 @@ export default function HomePage() {
               人員與權限
             </h2>
             <p className="mt-1.5 text-sm leading-relaxed text-[var(--muted)]">
-              可查看使用者名單，並停用／重新啟用員工。一般使用者無法進入此區。
+              可查看使用者名單，並停用／重新啟用員工。一般使用者無法進入設定。
             </p>
             <ul className="mt-4 space-y-2.5 text-sm">
               {users.map((u) => (
@@ -133,6 +214,9 @@ export default function HomePage() {
             <Link href="/orders" className="btn-ghost">
               查看全部訂單
             </Link>
+            <Link href="/acceptance/" className="btn-ghost">
+              課堂驗收區
+            </Link>
           </div>
         </section>
       ) : (
@@ -146,9 +230,9 @@ export default function HomePage() {
           <div className="mt-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
             {[
               { href: "/orders", label: "查訂單", hint: "表頭與明細" },
-              { href: "/shipping", label: "出貨揀貨", hint: "第 11 週" },
-              { href: "/inventory", label: "庫存", hint: "第 10 週" },
-              { href: "/receivables", label: "應收", hint: "第 12 週" },
+              { href: "/shipping", label: "出貨揀貨", hint: "待出貨" },
+              { href: "/inventory", label: "庫存", hint: "On_Hand" },
+              { href: "/receivables", label: "應收", hint: "收款" },
             ].map((q) => (
               <Link key={q.href} href={q.href} className="quick-tile">
                 <p className="text-sm font-medium text-[var(--brand-deep)]">
@@ -161,12 +245,8 @@ export default function HomePage() {
         </section>
       )}
 
-      <section
-        className={`animate-rise-4 grid gap-8 lg:gap-12 ${
-          isAdmin ? "lg:grid-cols-2" : "lg:grid-cols-[1.25fr_1fr]"
-        }`}
-      >
-        <div className={!isAdmin ? "order-1" : undefined}>
+      <section className="animate-rise-4 grid gap-8 lg:grid-cols-[1.15fr_0.95fr] lg:gap-10">
+        <div>
           <div className="mb-3 flex items-baseline justify-between gap-2 border-b border-[var(--border)] pb-2.5">
             <h2 className="font-display text-base tracking-wide text-[var(--brand-deep)]">
               {isAdmin ? "待出貨清單" : "待出貨（優先處理）"}
@@ -182,7 +262,7 @@ export default function HomePage() {
             <Notice kind="empty">目前沒有符合條件的訂單</Notice>
           ) : (
             <ul>
-              {pending.map((o) => (
+              {pending.slice(0, 8).map((o) => (
                 <li
                   key={o.Order_ID}
                   className="flex items-center justify-between gap-2 border-b border-[var(--border-soft)] py-3 text-sm last:border-0"
@@ -210,44 +290,7 @@ export default function HomePage() {
           )}
         </div>
 
-        <div className={!isAdmin ? "order-2" : undefined}>
-          <div className="mb-3 flex items-baseline justify-between gap-2 border-b border-[var(--border)] pb-2.5">
-            <h2 className="font-display text-base tracking-wide text-[var(--brand-deep)]">
-              最近五張訂單
-            </h2>
-            <Link
-              href="/orders"
-              className="text-xs text-[var(--brand)] underline-offset-4 transition hover:underline"
-            >
-              全部訂單
-            </Link>
-          </div>
-          {recent.length === 0 ? (
-            <Notice kind="empty">目前沒有符合條件的訂單</Notice>
-          ) : (
-            <ul>
-              {recent.map((o) => (
-                <li
-                  key={o.Order_ID}
-                  className="flex items-center justify-between gap-2 border-b border-[var(--border-soft)] py-3 text-sm last:border-0"
-                >
-                  <div className="min-w-0">
-                    <Link
-                      href={`/orders/${o.Order_ID}`}
-                      className="font-medium text-[var(--brand)] underline-offset-4 hover:underline"
-                    >
-                      {o.Order_ID}
-                    </Link>
-                    <p className="truncate text-xs leading-relaxed text-[var(--muted)]">
-                      {o.Order_Date} · {customerName(o.Customer_ID)}
-                    </p>
-                  </div>
-                  <StatusBadge status={o.Order_Status} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <ActivityTimeline items={activity} />
       </section>
 
       <section className="border-t border-[var(--border)] pt-6 text-sm leading-relaxed text-[var(--muted)]">
@@ -258,20 +301,6 @@ export default function HomePage() {
         <p className="mt-1.5 text-xs sm:text-sm">
           建議流程：已接受報價 → 轉訂單 → 出貨揀貨確認 → 扣庫並產生應收 → 登記收款。
         </p>
-        <div className="mt-4 flex flex-wrap gap-2.5">
-          <Link href="/quote-to-order/" className="btn-ghost text-xs">
-            報價轉訂單
-          </Link>
-          <Link href="/shipping/" className="btn-ghost text-xs">
-            出貨
-          </Link>
-          <Link href="/inventory/" className="btn-ghost text-xs">
-            庫存
-          </Link>
-          <Link href="/receivables/" className="btn-ghost text-xs">
-            應收
-          </Link>
-        </div>
       </section>
     </div>
   );

@@ -7,6 +7,8 @@ import { formatTwd } from "@/lib/format";
 import { statusLabel } from "@/lib/quotation-rules";
 import type { QuoteStatus } from "@/lib/types";
 import { LoadingState, Notice, PageHeader } from "@/components/Notice";
+import { PaginationBar } from "@/components/PaginationBar";
+import { DEFAULT_PAGE_SIZE, paginate } from "@/lib/list-utils";
 
 type SortKey = "id-desc" | "id-asc" | "date-desc" | "total-desc";
 
@@ -17,6 +19,7 @@ export default function QuotationsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sort, setSort] = useState<SortKey>("id-desc");
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -43,6 +46,12 @@ export default function QuotationsPage() {
     });
     return rows;
   }, [quotations, q, status, dateFrom, dateTo, sort, customerName]);
+
+  const { pageRows, page: safePage, pageCount, total } = paginate(
+    filtered,
+    page,
+    DEFAULT_PAGE_SIZE,
+  );
 
   if (!hydrated) {
     return <LoadingState title="報價" />;
@@ -77,13 +86,13 @@ export default function QuotationsPage() {
           className="field min-w-[10rem] flex-1"
           placeholder="搜尋編號／客戶／備註／狀態"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => { setQ(e.target.value); setPage(1); }}
           aria-label="搜尋報價"
         />
         <select
           className="field"
           value={status}
-          onChange={(e) => setStatus(e.target.value as "all" | QuoteStatus)}
+          onChange={(e) => { setStatus(e.target.value as "all" | QuoteStatus); setPage(1); }}
           aria-label="狀態篩選"
         >
           <option value="all">全部狀態</option>
@@ -151,7 +160,8 @@ export default function QuotationsPage() {
           請調整搜尋／狀態／日期篩選。
         </Notice>
       ) : (
-        <div className="table-shell">
+        <>
+        <div className="table-shell table-dense">
           <table>
             <thead>
               <tr>
@@ -167,7 +177,7 @@ export default function QuotationsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((row) => (
+              {pageRows.map((row) => (
                 <tr key={row.Quote_ID}>
                   <td>
                     <Link
@@ -209,6 +219,14 @@ export default function QuotationsPage() {
             </tbody>
           </table>
         </div>
+        <PaginationBar
+          page={safePage}
+          pageCount={pageCount}
+          total={total}
+          pageSize={DEFAULT_PAGE_SIZE}
+          onPageChange={setPage}
+        />
+        </>
       )}
     </div>
   );

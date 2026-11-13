@@ -8,6 +8,8 @@ import { formatTwd } from "@/lib/format";
 import { isAmountLocked, statusLabel } from "@/lib/quotation-rules";
 import type { QuoteStatus } from "@/lib/types";
 import { Notice, PageHeader } from "@/components/Notice";
+import { PrimaryActionBar } from "@/components/PrimaryActionBar";
+import { useToast } from "@/components/ToastProvider";
 
 export default function QuotationDetailPage() {
   const params = useParams();
@@ -23,6 +25,7 @@ export default function QuotationDetailPage() {
     hydrated,
   } = useApp();
   const router = useRouter();
+  const { pushToast } = useToast();
   const quote = quotations.find((q) => q.Quote_ID === quoteId);
   const details = quotationDetails
     .filter((d) => d.Quote_ID === quoteId)
@@ -56,12 +59,16 @@ export default function QuotationDetailPage() {
 
   function act(next: QuoteStatus) {
     const r = setQuoteStatus(quoteId, next);
-    setFlash(r.ok ? (r.message ?? "已更新") : (r.message ?? "失敗"));
+    const msg = r.ok ? (r.message ?? "已更新") : (r.message ?? "失敗");
+    setFlash(msg);
+    pushToast({ tone: r.ok ? "success" : "error", message: msg });
   }
 
   function convert() {
     const r = convertAcceptedQuote(quoteId);
-    setFlash(r.message ?? (r.ok ? "已轉單" : "轉單失敗"));
+    const msg = r.message ?? (r.ok ? "已轉單" : "轉單失敗");
+    setFlash(msg);
+    pushToast({ tone: r.ok ? "success" : "error", message: msg });
     if (r.ok && r.order) {
       router.push(`/orders/${r.order.Order_ID}/`);
     }
@@ -195,75 +202,100 @@ export default function QuotationDetailPage() {
         </div>
       </section>
 
-      <div className="no-print flex flex-wrap gap-2">
-        {quote.Status === "Draft" && (
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => act("Sent")}
-          >
-            送出（Sent）
-          </button>
-        )}
-        {quote.Status === "Sent" && isAdmin && (
-          <>
+      <div className="no-print space-y-3">
+        <section className="panel p-4 text-sm">
+          <h2 className="font-display text-base text-[var(--brand-deep)]">
+            相關紀錄
+          </h2>
+          <ul className="mt-2 space-y-1.5 text-[var(--muted)]">
+            <li>
+              客戶{" "}
+              <Link
+                href={`/customers/${quote.Customer_ID}/`}
+                className="text-[var(--brand)] underline-offset-2 hover:underline"
+              >
+                {quote.Customer_ID} {customerName(quote.Customer_ID)}
+              </Link>
+            </li>
+            {linkedOrder ? (
+              <li>
+                訂單{" "}
+                <Link
+                  href={`/orders/${linkedOrder.Order_ID}/`}
+                  className="text-[var(--brand)] underline-offset-2 hover:underline"
+                >
+                  {linkedOrder.Order_ID}
+                </Link>
+              </li>
+            ) : (
+              <li>尚未轉成訂單</li>
+            )}
+          </ul>
+        </section>
+
+        <PrimaryActionBar
+          status={
+            <>
+              狀態 {statusLabel(quote.Status)}
+              {quote.Status === "Sent" && !isAdmin && (
+                <span className="ml-2 text-xs">
+                  （接受／拒絕僅管理者）
+                </span>
+              )}
+            </>
+          }
+        >
+          {quote.Status === "Draft" && (
             <button
               type="button"
               className="btn-primary"
-              onClick={() => act("Accepted")}
+              onClick={() => act("Sent")}
             >
-              接受
+              送出
             </button>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => act("Rejected")}
+          )}
+          {quote.Status === "Sent" && isAdmin && (
+            <>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => act("Accepted")}
+              >
+                接受
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => act("Rejected")}
+              >
+                拒絕
+              </button>
+            </>
+          )}
+          {quote.Status === "Accepted" && !linkedOrder && (
+            <button type="button" className="btn-primary" onClick={convert}>
+              轉成訂單
+            </button>
+          )}
+          {linkedOrder && (
+            <Link
+              href={`/orders/${linkedOrder.Order_ID}/`}
+              className="btn-primary"
             >
-              拒絕
-            </button>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => act("Expired")}
-            >
-              標示到期
-            </button>
-          </>
-        )}
-        {quote.Status === "Sent" && !isAdmin && (
-          <p className="text-xs text-[var(--muted)]">
-            Staff 可送出；接受／拒絕／到期僅管理者。
-          </p>
-        )}
-        {quote.Status === "Accepted" && !linkedOrder && (
-          <button type="button" className="btn-primary" onClick={convert}>
-            轉成訂單
-          </button>
-        )}
-        {linkedOrder && (
-          <Link
-            href={`/orders/${linkedOrder.Order_ID}/`}
-            className="btn-primary"
+              開啟 {linkedOrder.Order_ID}
+            </Link>
+          )}
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => window.print()}
           >
-            已轉 {linkedOrder.Order_ID}
+            列印 A4
+          </button>
+          <Link href="/quotations/new/" className="btn-ghost">
+            開新報價
           </Link>
-        )}
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => window.print()}
-        >
-          列印／預覽
-        </button>
-        <Link href="/quote-to-order/" className="btn-ghost">
-          報價轉訂單
-        </Link>
-        <Link href="/quotations/new/" className="btn-ghost">
-          開新報價（重報）
-        </Link>
-        <Link href="/quotations/" className="btn-primary">
-          返回報價列表
-        </Link>
+        </PrimaryActionBar>
       </div>
     </div>
   );

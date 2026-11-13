@@ -6,6 +6,8 @@ import { useApp } from "@/lib/app-context";
 import { formatTwd } from "@/lib/format";
 import { PRODUCT_CATEGORIES, activeProductLabel } from "@/lib/product-rules";
 import { LoadingState, Notice, PageHeader } from "@/components/Notice";
+import { PaginationBar } from "@/components/PaginationBar";
+import { DEFAULT_PAGE_SIZE, paginate } from "@/lib/list-utils";
 
 type ActiveFilter = "all" | "active" | "inactive";
 type SortKey = "id" | "name" | "price-asc" | "price-desc";
@@ -21,6 +23,7 @@ export default function ProductsPage() {
   const [maxPrice, setMaxPrice] = useState("");
   const [sort, setSort] = useState<SortKey>("id");
   const [flash, setFlash] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -48,6 +51,12 @@ export default function ProductsPage() {
     });
     return rows;
   }, [products, q, cat, activeFilter, minPrice, maxPrice, sort]);
+
+  const { pageRows, page: safePage, pageCount, total } = paginate(
+    filtered,
+    page,
+    DEFAULT_PAGE_SIZE,
+  );
 
   if (!hydrated) {
     return <LoadingState title="商品" />;
@@ -98,7 +107,7 @@ export default function ProductsPage() {
           className="field min-w-[10rem] flex-1"
           placeholder="搜尋編號／名稱／分類／說明"
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => { setQ(e.target.value); setPage(1); }}
           aria-label="搜尋商品"
         />
         <select
@@ -187,7 +196,8 @@ export default function ProductsPage() {
           請調整搜尋／篩選，或清除條件後再試。
         </Notice>
       ) : (
-        <div className="table-shell">
+        <>
+        <div className="table-shell table-dense">
           <table>
             <thead>
               <tr>
@@ -203,7 +213,7 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
+              {pageRows.map((p) => (
                 <tr
                   key={p.Product_ID}
                   className={!p.Is_Active ? "opacity-70" : undefined}
@@ -290,6 +300,14 @@ export default function ProductsPage() {
             </tbody>
           </table>
         </div>
+        <PaginationBar
+          page={safePage}
+          pageCount={pageCount}
+          total={total}
+          pageSize={DEFAULT_PAGE_SIZE}
+          onPageChange={setPage}
+        />
+        </>
       )}
     </div>
   );

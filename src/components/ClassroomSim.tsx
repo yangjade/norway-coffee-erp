@@ -107,7 +107,7 @@ const EXTRA_ACTIONS: {
   hint: string;
   tone: "brand" | "accent" | "danger" | "neutral";
 }[] = [
-  { key: "reset", label: "恢復完整樣本（12）", hint: "含停用 C011；寫入本機", tone: "accent" },
+  { key: "reset", label: "恢復完整樣本", hint: "含擴充分頁資料量；寫入本機", tone: "accent" },
   { key: "cancel", label: "取消 SO002", hint: "KPI 應變 2／7,200／待出貨 2", tone: "brand" },
   { key: "clear", label: "清空訂單", hint: "客戶總數不變，訂單指標歸零", tone: "neutral" },
   { key: "fail", label: "載入失敗", hint: "與無資料／無權限分開顯示", tone: "danger" },
@@ -115,7 +115,7 @@ const EXTRA_ACTIONS: {
   { key: "toggle", label: "呼叫啟用修改", hint: "切換 U002 啟用（測第三層）", tone: "accent" },
 ];
 
-export function ClassroomSim() {
+export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
   const panelId = useId();
   const {
@@ -288,41 +288,55 @@ export function ClassroomSim() {
     <section
       id="classroom-acceptance"
       aria-label="課堂資料與驗收工具"
-      className="animate-rise-4 overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-white shadow-[var(--shadow-lift)]"
+      className={`overflow-hidden rounded-[var(--radius)] border border-[var(--border)] bg-white shadow-[var(--shadow-lift)] ${
+        embedded ? "" : "animate-rise-4"
+      }`}
     >
-      <button
-        type="button"
-        className="relative flex w-full items-start gap-3 border-b border-[var(--border)] bg-[var(--brand)] px-4 py-4 text-left text-[var(--surface)] sm:px-5"
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-[linear-gradient(90deg,transparent,var(--accent-bright),transparent)]"
-          aria-hidden
-        />
-        <div className="min-w-0 flex-1">
-          <p className="eyebrow text-[rgba(240,230,207,0.85)]">
-            Norway Coffee · 驗收區
-          </p>
-          <h2 className="font-display mt-1.5 text-lg font-semibold tracking-wide sm:text-xl">
+      {embedded ? (
+        <div className="border-b border-[var(--border)] bg-[var(--surface-muted)] px-4 py-3 sm:px-5">
+          <p className="text-sm font-medium text-[var(--brand-deep)]">
             課堂資料與驗收工具
-          </h2>
-          <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-white/78">
-            挪威的咖啡教學模擬：按鈕會真正改資料並同步首頁 KPI／客戶列表（本機
-            localStorage）。非正式登入，不能當正式資安證據。
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">
+            按鈕會真正改本機資料並同步 KPI／列表。非正式登入，不能當正式資安證據。
+            目前：{persistLabel}
           </p>
         </div>
-        <span
-          className="mt-1 shrink-0 text-lg text-[rgba(240,230,207,0.9)] transition-transform duration-200"
-          style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}
-          aria-hidden
+      ) : (
+        <button
+          type="button"
+          className="relative flex w-full items-start gap-3 border-b border-[var(--border)] bg-[var(--brand)] px-4 py-4 text-left text-[var(--surface)] sm:px-5"
+          aria-expanded={open}
+          aria-controls={panelId}
+          onClick={() => setOpen((v) => !v)}
         >
-          ▼
-        </span>
-      </button>
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-[linear-gradient(90deg,transparent,var(--accent-bright),transparent)]"
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            <p className="eyebrow text-[rgba(240,230,207,0.85)]">
+              Norway Coffee · 驗收區
+            </p>
+            <h2 className="font-display mt-1.5 text-lg font-semibold tracking-wide sm:text-xl">
+              課堂資料與驗收工具
+            </h2>
+            <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-white/78">
+              挪威的咖啡教學模擬：按鈕會真正改資料並同步首頁 KPI／客戶列表（本機
+              localStorage）。非正式登入，不能當正式資安證據。
+            </p>
+          </div>
+          <span
+            className="mt-1 shrink-0 text-lg text-[rgba(240,230,207,0.9)] transition-transform duration-200"
+            style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}
+            aria-hidden
+          >
+            ▼
+          </span>
+        </button>
+      )}
 
-      {open && (
+      {(embedded || open) && (
         <div id={panelId}>
           <div className="grid gap-2.5 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
             {WEEK6_ACTIONS.map((a) => (

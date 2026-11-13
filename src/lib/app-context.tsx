@@ -82,8 +82,8 @@ import type {
   StockMove,
 } from "./types";
 
-const STORAGE_KEY = "norway-coffee-erp-demo-v4";
-const STORAGE_VERSION = 4 as const;
+const STORAGE_KEY = "norway-coffee-erp-demo-v5";
+const STORAGE_VERSION = 5 as const;
 
 interface PersistedState {
   version: typeof STORAGE_VERSION;
@@ -241,7 +241,12 @@ function migrateFromLegacy(parsed: {
   payments?: unknown;
   currentUserId?: unknown;
 }): PersistedState | null {
-  if (parsed?.version !== 2 && parsed?.version !== 3 && parsed?.version !== 4) {
+  if (
+    parsed?.version !== 2 &&
+    parsed?.version !== 3 &&
+    parsed?.version !== 4 &&
+    parsed?.version !== 5
+  ) {
     return null;
   }
   if (
@@ -312,10 +317,20 @@ function readStorage(): PersistedState | null {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("norway-coffee-erp-demo-v4") ??
       window.localStorage.getItem("norway-coffee-erp-demo-v3") ??
       window.localStorage.getItem("norway-coffee-erp-demo-v2");
     if (!raw) return null;
-    return migrateFromLegacy(JSON.parse(raw));
+    const parsed = JSON.parse(raw) as { version?: number; orders?: unknown[] };
+    // v5 起預設體量更大；舊版本機資料若訂單過少，改載完整種子以便分頁／儀表板示範
+    if (
+      parsed?.version !== 5 &&
+      Array.isArray(parsed.orders) &&
+      parsed.orders.length < 20
+    ) {
+      return null;
+    }
+    return migrateFromLegacy(parsed);
   } catch {
     return null;
   }

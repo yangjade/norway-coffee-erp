@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Noto_Sans_TC, Noto_Serif_TC } from "next/font/google";
 import { AppProvider } from "@/lib/app-context";
 import { AppShell } from "@/components/AppShell";
+import { ToastProvider } from "@/components/ToastProvider";
 import "./globals.css";
 
 const notoSans = Noto_Sans_TC({
@@ -33,7 +34,9 @@ export default function RootLayout({
         className={`${notoSans.variable} ${notoSerif.variable} antialiased`}
       >
         <AppProvider>
-          <AppShell>{children}</AppShell>
+          <ToastProvider>
+            <AppShell>{children}</AppShell>
+          </ToastProvider>
         </AppProvider>
       </body>
     </html>

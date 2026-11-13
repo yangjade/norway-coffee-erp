@@ -8,6 +8,9 @@ import { formatTwd } from "@/lib/format";
 import { todayLocalDate } from "@/lib/quotation-rules";
 import type { ReceivableStatus } from "@/lib/types";
 import { Notice, PageHeader } from "@/components/Notice";
+import { PaginationBar } from "@/components/PaginationBar";
+import { useToast } from "@/components/ToastProvider";
+import { DEFAULT_PAGE_SIZE, paginate } from "@/lib/list-utils";
 
 const STATUS_FILTER: Array<ReceivableStatus | "全部"> = [
   "全部",
@@ -28,6 +31,8 @@ export default function ReceivablesPage() {
   const [status, setStatus] = useState<(typeof STATUS_FILTER)[number]>("全部");
   const [q, setQ] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
   const [payForms, setPayForms] = useState<
     Record<string, { amount: string; date: string; note: string }>
@@ -61,6 +66,12 @@ export default function ReceivablesPage() {
       .sort((a, b) => b.Invoice_Date.localeCompare(a.Invoice_Date));
   }, [receivables, status, q, customerName]);
 
+  const { pageRows, page: safePage, pageCount, total } = paginate(
+    rows,
+    page,
+    DEFAULT_PAGE_SIZE,
+  );
+
   function formFor(arId: string) {
     return (
       payForms[arId] ?? {
@@ -88,9 +99,18 @@ export default function ReceivablesPage() {
     const result = recordArPayment(arId, f.amount, f.date, f.note);
     if (!result.ok) {
       setError(result.message ?? "收款失敗");
+      pushToast({
+        tone: "error",
+        title: "收款失敗",
+        message: result.message ?? "失敗",
+      });
       return;
     }
     setFlash(result.message ?? "已收款");
+    pushToast({
+      tone: "success",
+      message: result.message ?? "已收款",
+    });
     setPayForms((prev) => ({
       ...prev,
       [arId]: { amount: "", date: todayLocalDate(), note: "" },
@@ -204,7 +224,7 @@ export default function ReceivablesPage() {
         <Notice kind="empty">沒有符合的應收</Notice>
       ) : (
         <div className="space-y-4">
-          {rows.map((r) => {
+          {pageRows.map((r) => {
             const due = outstandingOf(r);
             const relatedPays = payments
               .filter((p) => p.AR_ID === r.AR_ID)
@@ -307,6 +327,15 @@ export default function ReceivablesPage() {
             );
           })}
         </div>
+      )}
+      {rows.length > 0 && (
+        <PaginationBar
+          page={safePage}
+          pageCount={pageCount}
+          total={total}
+          pageSize={DEFAULT_PAGE_SIZE}
+          onPageChange={setPage}
+        />
       )}
     </div>
   );

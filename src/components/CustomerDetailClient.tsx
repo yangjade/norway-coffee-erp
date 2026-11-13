@@ -13,8 +13,11 @@ import {
   softDeleteConfirmMessage,
 } from "@/lib/customer-soft-delete";
 import { formatTwd } from "@/lib/format";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Notice, PageHeader } from "@/components/Notice";
+import { PrimaryActionBar } from "@/components/PrimaryActionBar";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useToast } from "@/components/ToastProvider";
 
 export function CustomerDetailClient() {
   const params = useParams();
@@ -22,6 +25,7 @@ export function CustomerDetailClient() {
   const {
     customers,
     orders,
+    quotations,
     hydrated,
     currentUser,
     softDeleteCustomer,
@@ -30,7 +34,10 @@ export function CustomerDetailClient() {
     tryForceSoftDelete,
   } = useApp();
   const isAdmin = currentUser.Role === "Admin";
+  const { pushToast } = useToast();
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [confirmSoftDelete, setConfirmSoftDelete] = useState(false);
+  const [confirmReactivate, setConfirmReactivate] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -58,6 +65,15 @@ export function CustomerDetailClient() {
         return d !== 0 ? d : b.Order_ID.localeCompare(a.Order_ID);
       });
   }, [orders, customerId]);
+
+  const linkedQuotes = useMemo(
+    () =>
+      quotations
+        .filter((q) => q.Customer_ID === customerId)
+        .sort((a, b) => b.Quote_Date.localeCompare(a.Quote_Date))
+        .slice(0, 5),
+    [quotations, customerId],
+  );
 
   if (!hydrated) {
     return (
@@ -88,41 +104,11 @@ export function CustomerDetailClient() {
   }
 
   function onSoftDelete() {
-    if (
-      !window.confirm(
-        softDeleteConfirmMessage(
-          customer!.Customer_ID,
-          customer!.Customer_Name,
-        ),
-      )
-    ) {
-      return;
-    }
-    const result = softDeleteCustomer(customer!.Customer_ID);
-    setActionMsg(
-      result.ok
-        ? `已刪除／停用 ${customer!.Customer_ID}（軟刪除：Is_Active=false；主檔與訂單仍保留）`
-        : result.message ?? "操作失敗",
-    );
+    setConfirmSoftDelete(true);
   }
 
   function onReactivate() {
-    if (
-      !window.confirm(
-        reactivateConfirmMessage(
-          customer!.Customer_ID,
-          customer!.Customer_Name,
-        ),
-      )
-    ) {
-      return;
-    }
-    const result = setCustomerActive(customer!.Customer_ID, true);
-    setActionMsg(
-      result.ok
-        ? `已重新啟用 ${customer!.Customer_ID}`
-        : result.message ?? "操作失敗",
-    );
+    setConfirmReactivate(true);
   }
 
   function forceCreditTest() {
@@ -290,6 +276,42 @@ export function CustomerDetailClient() {
         )}
       </section>
 
+      <section>
+        <div className="mb-2.5 flex items-baseline justify-between gap-2 border-b border-[var(--border)] pb-2">
+          <h2 className="font-display text-[0.95rem] font-semibold tracking-wide text-[var(--brand-deep)]">
+            相關報價
+          </h2>
+          <Link
+            href="/quotations/"
+            className="text-xs text-[var(--brand)] underline-offset-2 hover:underline"
+          >
+            全部報價
+          </Link>
+        </div>
+        {linkedQuotes.length === 0 ? (
+          <Notice kind="empty">此客戶目前沒有報價紀錄</Notice>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {linkedQuotes.map((q) => (
+              <li
+                key={q.Quote_ID}
+                className="flex items-center justify-between gap-2 border-b border-[var(--border-soft)] py-2 last:border-0"
+              >
+                <Link
+                  href={`/quotations/${q.Quote_ID}/`}
+                  className="font-mono text-xs text-[var(--brand)] underline-offset-2 hover:underline"
+                >
+                  {q.Quote_ID}
+                </Link>
+                <span className="text-xs text-[var(--muted)]">
+                  {q.Quote_Date} · {q.Status}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       {!isAdmin && (
         <section className="border border-[var(--danger-border)] bg-[var(--danger-bg)] p-4 space-y-3">
           <div>
@@ -324,6 +346,78 @@ export function CustomerDetailClient() {
           </div>
         </section>
       )}
+
+      <PrimaryActionBar
+        status={
+          <>
+            {customer.Customer_ID} · {activeLabel(customer.Is_Active)}
+          </>
+        }
+      >
+        <Link
+          href={`/customers/${customer.Customer_ID}/edit/`}
+          className="btn-primary"
+        >
+          編輯客戶
+        </Link>
+        <Link href="/quotations/new/" className="btn-ghost">
+          新增報價
+        </Link>
+        {isAdmin &&
+          (customer.Is_Active ? (
+            <button
+              type="button"
+              className="btn-danger"
+              onClick={onSoftDelete}
+            >
+              刪除／停用
+            </button>
+          ) : (
+            <button type="button" className="btn-primary" onClick={onReactivate}>
+              重新啟用
+            </button>
+          ))}
+      </PrimaryActionBar>
+
+      <ConfirmDialog
+        open={confirmSoftDelete}
+        title="刪除／停用客戶？"
+        message={softDeleteConfirmMessage(
+          customer.Customer_ID,
+          customer.Customer_Name,
+        )}
+        confirmLabel="停用"
+        danger
+        onCancel={() => setConfirmSoftDelete(false)}
+        onConfirm={() => {
+          const result = softDeleteCustomer(customer.Customer_ID);
+          const msg = result.ok
+            ? `已刪除／停用 ${customer.Customer_ID}（軟刪除：Is_Active=false；主檔與訂單仍保留）`
+            : result.message ?? "操作失敗";
+          setActionMsg(msg);
+          pushToast({ tone: result.ok ? "success" : "error", message: msg });
+          setConfirmSoftDelete(false);
+        }}
+      />
+      <ConfirmDialog
+        open={confirmReactivate}
+        title="重新啟用客戶？"
+        message={reactivateConfirmMessage(
+          customer.Customer_ID,
+          customer.Customer_Name,
+        )}
+        confirmLabel="啟用"
+        onCancel={() => setConfirmReactivate(false)}
+        onConfirm={() => {
+          const result = setCustomerActive(customer.Customer_ID, true);
+          const msg = result.ok
+            ? `已重新啟用 ${customer.Customer_ID}`
+            : result.message ?? "操作失敗";
+          setActionMsg(msg);
+          pushToast({ tone: result.ok ? "success" : "error", message: msg });
+          setConfirmReactivate(false);
+        }}
+      />
     </div>
   );
 }

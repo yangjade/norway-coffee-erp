@@ -10,6 +10,11 @@ import type {
   SalesOrderDetail,
   StockMove,
 } from "./types";
+import {
+  buildExtraCustomers,
+  buildExtraProducts,
+  buildVolumeDocuments,
+} from "./sample-data-volume";
 
 /** 統計基準日（Asia/Taipei）— KPI 必須由此計算，不可寫死 */
 export const BASE_DATE = "2026-10-13";
@@ -608,6 +613,38 @@ export const initialReceivables: Receivable[] = [
 ];
 
 export const initialPayments: Payment[] = [];
+
+/** 擴充至可分頁體量（客戶／商品／訂單／報價／應收） */
+customers.push(...buildExtraCustomers(customers));
+products.push(...buildExtraProducts(products));
+
+const volumeDocs = buildVolumeDocuments({
+  customers,
+  products,
+  baseOrders: initialOrders,
+  baseOrderDetails: orderDetails,
+  baseQuotes: initialQuotations,
+  baseQuoteDetails: initialQuotationDetails,
+  baseReceivables: initialReceivables,
+  basePayments: initialPayments,
+  baseMoves: initialStockMoves,
+  baseDate: BASE_DATE,
+});
+
+initialOrders.length = 0;
+initialOrders.push(...volumeDocs.orders);
+orderDetails.length = 0;
+orderDetails.push(...volumeDocs.orderDetails);
+initialQuotations.length = 0;
+initialQuotations.push(...volumeDocs.quotations);
+initialQuotationDetails.length = 0;
+initialQuotationDetails.push(...volumeDocs.quotationDetails);
+initialReceivables.length = 0;
+initialReceivables.push(...volumeDocs.receivables);
+initialPayments.length = 0;
+initialPayments.push(...volumeDocs.payments);
+initialStockMoves.length = 0;
+initialStockMoves.push(...volumeDocs.stockMoves);
 
 export function customerName(id: string): string {
   return customers.find((c) => c.Customer_ID === id)?.Customer_Name ?? id;
