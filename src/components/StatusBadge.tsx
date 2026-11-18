@@ -7,12 +7,19 @@ const STYLES: Record<OrderStatus, string> = {
   Cancelled: "text-[var(--muted)] bg-[var(--linen)]",
 };
 
-export function StatusBadge({ status }: { status: OrderStatus }) {
+export function StatusBadge({
+  status,
+  showEn = true,
+}: {
+  status: OrderStatus;
+  showEn?: boolean;
+}) {
   return (
     <span
       className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-medium tracking-[0.03em] ${STYLES[status] ?? ""}`}
     >
       {statusLabelZh(status)}
+      {showEn ? ` (${status})` : ""}
     </span>
   );
 }

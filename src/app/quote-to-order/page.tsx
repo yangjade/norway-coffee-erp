@@ -68,17 +68,48 @@ export default function QuoteToOrderPage() {
     >
       <PageHeader
         title="報價轉訂單"
-        description="已接受且未逾期 → Draft 訂單；快照單價／折扣；業務日固定 2026-11-18"
+        description="主流程入口：已接受且未逾期 → 草稿訂單 → 交期／改期同意 → 確認（不扣庫）"
         actions={
-          <Link href="/orders/" className="btn-ghost text-sm">
-            訂單列表
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/orders/" className="btn-ghost text-sm">
+              訂單列表
+            </Link>
+            <Link href="/acceptance/#acceptance-s01-s13" className="btn-ghost text-sm">
+              S01–S13
+            </Link>
+          </div>
         }
       />
 
-      <Notice kind="info">
-        業務日（asOf）={asOf}。案例 QT-20261118-001 轉單總額應為 7,560。同報價連按回原單。確認訂單不扣庫。
-      </Notice>
+      <div className="panel grid gap-2 px-4 py-3 sm:grid-cols-4">
+        {[
+          { n: "1", t: "選已接受報價" },
+          { n: "2", t: "轉成草稿訂單" },
+          { n: "3", t: "調交期／改期同意" },
+          { n: "4", t: "確認（不扣庫）" },
+        ].map((s) => (
+          <div key={s.n} className="flex items-center gap-2 text-sm">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--brand)] text-[11px] font-semibold text-white">
+              {s.n}
+            </span>
+            <span className="font-medium text-[var(--brand-deep)]">{s.t}</span>
+          </div>
+        ))}
+      </div>
+
+      <div
+        className="rounded-[var(--radius)] border border-[var(--wood)]/35 bg-[var(--accent-soft)]/70 px-5 py-4 text-sm leading-relaxed text-[var(--brand-deep)]"
+        role="note"
+      >
+        業務日（asOf）={asOf}。課堂案例{" "}
+        <Link
+          href="/quotations/QT-20261118-001/"
+          className="font-mono underline"
+        >
+          QT-20261118-001
+        </Link>{" "}
+        轉單總額應為 7,560。同報價連按會開啟原單。確認訂單不扣庫、不建應收。
+      </div>
 
       <div className="panel px-4 py-3 text-xs text-[var(--muted)]">
         <ul className="list-disc pl-4">

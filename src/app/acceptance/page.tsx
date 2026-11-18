@@ -12,11 +12,11 @@ export default function AcceptancePage() {
     >
       <PageHeader
         title="驗收區"
-        description="第 8 週正式：Draft／Confirmed／Cancelled、雙交期、驗收 01–12。"
+        description="銷售 S01–S13 · Draft／Confirmed／Cancelled · 雙交期 · 確認不扣庫"
       />
       <Notice kind="info">
-        請按「一鍵跑 01–12」。案例 QT-20261118-001 總額 7,560；確認不扣庫。本機
-        storage v6（重設樣本）。
+        銷售請按「一鍵跑 S01–S13」（含晚交勾同意）。案例 QT-20261118-001 總額
+        7,560；確認不扣庫。本機 storage v6。庫存 I 系列由第 10 週區塊負責。
       </Notice>
       <ClassroomSim embedded />
     </div>
