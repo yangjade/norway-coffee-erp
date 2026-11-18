@@ -229,8 +229,9 @@ export const products: Product[] = [
     List_Price: 600,
     Cost: 300,
     On_Hand: 58,
+    Safety_Stock: 8,
     Is_Active: true,
-    Description: "果香日曬處理",
+    Description: "果香日曬處理（第10週對等 T001）",
   },
   {
     Product_ID: "P003",
@@ -328,8 +329,9 @@ export const products: Product[] = [
     List_Price: 300,
     Cost: 140,
     On_Hand: 90,
+    Safety_Stock: 3,
     Is_Active: true,
-    Description: "第 8 週案例對等 T002（單價 300）",
+    Description: "第 8／10 週案例對等 T002（單價 300）",
   },
 ];
 
@@ -422,6 +424,21 @@ export const initialQuotations: Quotation[] = [
     Tax_Amount: 360,
     Total: 7560,
     Notes: "第 8 週正式案例：對等 T001×10@600−10% + T002×6@300",
+    Created_At: "2026-11-18T02:00:00.000Z",
+    Updated_At: "2026-11-18T04:00:00.000Z",
+  },
+  {
+    Quote_ID: "QT-20261118-002",
+    Customer_ID: "C001",
+    Quote_Date: "2026-11-18",
+    Valid_Until: "2026-11-25",
+    Status: "Accepted",
+    Discount_Amount: 0,
+    Tax_Rate: 0.05,
+    Subtotal: 7500,
+    Tax_Amount: 375,
+    Total: 7875,
+    Notes: "第 10 週 SO-B：P002×12 + P011×1",
     Created_At: "2026-11-18T02:00:00.000Z",
     Updated_At: "2026-11-18T04:00:00.000Z",
   },
@@ -550,6 +567,28 @@ export const initialQuotationDetails: QuotationDetail[] = [
     Unit_Price: 300,
     Discount_Rate: 0,
     Line_Amount: 1800,
+  },
+  {
+    Quote_ID: "QT-20261118-002",
+    Line_No: 1,
+    Product_ID: "P002",
+    Product_Name_Snapshot: "日曬耶加雪菲",
+    Unit_Snapshot: "包",
+    Qty: 12,
+    Unit_Price: 600,
+    Discount_Rate: 0,
+    Line_Amount: 7200,
+  },
+  {
+    Quote_ID: "QT-20261118-002",
+    Line_No: 2,
+    Product_ID: "P011",
+    Product_Name_Snapshot: "峽灣小罐精品粉",
+    Unit_Snapshot: "罐",
+    Qty: 1,
+    Unit_Price: 300,
+    Discount_Rate: 0,
+    Line_Amount: 300,
   },
   {
     Quote_ID: "QW8-EXP",
@@ -778,6 +817,12 @@ export const initialReceivables: Receivable[] = [
 ];
 
 export const initialPayments: Payment[] = [];
+
+/** 第 6 週基準：擴充前凍結 SO001–SO005（供 loadBaseline／T01–T12） */
+export const baselineOrders: SalesOrder[] = initialOrders.map((o) => ({ ...o }));
+export const baselineOrderDetails: SalesOrderDetail[] = orderDetails.map((d) => ({
+  ...d,
+}));
 
 /** 擴充至可分頁體量（客戶／商品／訂單／報價／應收） */
 customers.push(...buildExtraCustomers(customers));

@@ -346,7 +346,7 @@ export function Week8Acceptance() {
     >
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">
-          銷售驗收 S01–S13（第 8 週）
+          <span id="s01">銷售驗收 S01–S13（第 8 週）</span>
         </p>
         <button
           type="button"

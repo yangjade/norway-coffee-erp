@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { Week8Acceptance } from "@/components/Week8Acceptance";
+import { Week10Acceptance } from "@/components/Week10Acceptance";
+import { WeekTAcceptance } from "@/components/WeekTAcceptance";
 import { useApp } from "@/lib/app-context";
 import { BASE_DATE } from "@/lib/sample-data";
 
@@ -53,7 +55,7 @@ const WEEK1012_ACTIONS: {
   {
     key: "goto-inventory",
     label: "打開庫存",
-    hint: "On_Hand · 出貨扣庫",
+    hint: "現有／保留／可用 · 警示",
     tone: "neutral",
   },
   {
@@ -124,6 +126,7 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
     tryForceCreditLimit,
     tryForceProductPrice,
     tryForceAcceptQuote,
+    switchUser,
     customers,
     users,
     products,
@@ -205,15 +208,15 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
       case "credit": {
         const before =
           customers.find((c) => c.Customer_ID === "C002")?.Credit_Limit ?? 0;
+        // T08：強制以 Staff 身分測越權（不依賴側欄目前角色）
+        switchUser("U002");
         const result = tryForceCreditLimit("C002", 50000);
-        const after =
-          result.customer?.Credit_Limit ??
-          customers.find((c) => c.Customer_ID === "C002")?.Credit_Limit ??
-          before;
+        const after = result.customer?.Credit_Limit ?? before;
+        switchUser("U001");
         flash(
           key,
           result.ok
-            ? `不應成功：額度已變 ${after}（目前角色 ${currentUser.Role}）`
+            ? `不應成功：額度已變 ${after}`
             : `已阻擋：${result.message}（呼叫前 ${before}；目前仍 ${after}；Staff 應為 20000）`,
         );
         break;
@@ -262,15 +265,14 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
       case "staff-price": {
         const before =
           products.find((p) => p.Product_ID === "P002")?.List_Price ?? 0;
+        switchUser("U002");
         const result = tryForceProductPrice("P002", 9999);
-        const after =
-          result.product?.List_Price ??
-          products.find((p) => p.Product_ID === "P002")?.List_Price ??
-          before;
+        const after = result.product?.List_Price ?? before;
+        switchUser("U001");
         flash(
           key,
           result.ok
-            ? `不應成功：List_Price 已變 ${after}（角色 ${currentUser.Role}）`
+            ? `不應成功：List_Price 已變 ${after}`
             : `已阻擋改價：${result.message}（前 ${before}；仍 ${after}）`,
         );
         break;
@@ -284,7 +286,9 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
           break;
         }
         const before = q.Status;
+        switchUser("U002");
         const result = tryForceAcceptQuote(q.Quote_ID);
+        switchUser("U001");
         flash(
           key,
           result.ok
@@ -415,7 +419,11 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
             ))}
           </div>
 
+          <WeekTAcceptance />
+
           <Week8Acceptance />
+
+          <Week10Acceptance />
 
           <div className="border-t border-[var(--border)] px-4 pb-1 pt-3 sm:px-5">
             <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">

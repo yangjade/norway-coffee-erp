@@ -54,8 +54,12 @@ export interface Product {
   Unit: string;
   List_Price: number;
   Cost: number;
-  /** 現有庫存（第 10 週教學：單一 on-hand，無多倉） */
+  /** 現有庫存快取（＝已過帳實體異動加總；第 10 週單倉 WH01） */
   On_Hand: number;
+  /** 安全庫存警示門檻（非負整數；不從可用量再扣） */
+  Safety_Stock?: number;
+  /** 盤點短少等異常：暫停新保留／一般出庫 */
+  Hold_Allocation?: boolean;
   Is_Active: boolean;
   Description: string;
   Created_At?: string;
@@ -226,18 +230,66 @@ export type QuotationUpdateInput = {
   lines?: QuotationDetailInput[];
 };
 
-/** 庫存異動（第 10 週教學級） */
-export type StockMoveReason = "出貨扣庫" | "取消還原" | "手動調整";
+/** 單一教學倉 */
+export const WAREHOUSE_ID = "WH01" as const;
+export type WarehouseId = typeof WAREHOUSE_ID;
 
+/** 庫存異動類型（第 10 週） */
+export type StockMoveType =
+  | "期初"
+  | "入庫"
+  | "出庫"
+  | "盤點調整"
+  | "更正"
+  | "出貨扣庫"
+  | "取消還原"
+  | "手動調整";
+
+/** @deprecated 相容舊 Reason 欄位 */
+export type StockMoveReason = StockMoveType;
+
+export type StockMoveStatus = "Draft" | "Posted";
+
+export type StockAlert = "正常" | "低庫存" | "缺貨";
+
+/** 庫存異動（第 10 週：草稿不過帳；過帳後才計入現有量） */
 export interface StockMove {
   Move_ID: string;
   Product_ID: string;
-  /** 正數入庫／負數出庫 */
+  Warehouse_ID?: WarehouseId;
+  Move_Type?: StockMoveType;
+  /**
+   * 有正負號數量：入庫／盤盈／期初為正；出庫／盤虧為負。
+   * 草稿階段亦存簽署後數量（類型決定正負），不可為 0。
+   */
   Qty: number;
+  Status?: StockMoveStatus;
+  Source_Doc_ID?: string;
+  Source_Line_No?: number;
   Reason: StockMoveReason;
   Ref_Order_ID?: string;
   Move_Date: string;
+  Posted_At?: string;
   Note?: string;
+  Handled_By?: string;
+  Reversal_Of?: string;
+  /** 盤點：實盤量 */
+  Counted_Qty?: number;
+  /** 盤點：過帳前帳載現有量 */
+  Book_On_Hand?: number;
+}
+
+/** 訂單保留紀錄（僅有效列計入保留量） */
+export interface StockReservation {
+  Reserve_ID: string;
+  Order_ID: string;
+  Detail_ID: string;
+  Product_ID: string;
+  Warehouse_ID: WarehouseId;
+  Qty: number;
+  Is_Active: boolean;
+  Created_At: string;
+  Released_At?: string;
 }
 
 /** 應收狀態（第 12 週；非營所稅） */

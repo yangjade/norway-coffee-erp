@@ -8,7 +8,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -19,13 +21,19 @@ import {
 } from "./ar-rules";
 import {
   adjustOnHand,
+  confirmOrderWithReserve,
+  createStockMove,
   deductStockForShip,
+  getInventorySnapshot,
+  postStockMove,
+  releaseOrderReserves,
   restoreStockForUnship,
+  setSafetyStock,
+  type CreateMoveInput,
   type InventoryActionResult,
 } from "./inventory-rules";
 import {
   cancelOrder as cancelOrderRule,
-  confirmOrder as confirmOrderRule,
   convertQuoteToOrder,
   ensureDetailShape,
   ensureOrderShape,
@@ -37,6 +45,8 @@ import {
 } from "./order-rules";
 import {
   baselineCustomers,
+  baselineOrderDetails,
+  baselineOrders,
   customers as seedCustomers,
   demoCustomers,
   initialOrders,
@@ -92,10 +102,11 @@ import type {
   SalesOrder,
   SalesOrderDetail,
   StockMove,
+  StockReservation,
 } from "./types";
 
-const STORAGE_KEY = "norway-coffee-erp-demo-v6";
-const STORAGE_VERSION = 6 as const;
+const STORAGE_KEY = "norway-coffee-erp-demo-v7";
+const STORAGE_VERSION = 7 as const;
 
 interface PersistedState {
   version: typeof STORAGE_VERSION;
@@ -107,6 +118,7 @@ interface PersistedState {
   quotations: Quotation[];
   quotationDetails: QuotationDetail[];
   stockMoves: StockMove[];
+  stockReservations: StockReservation[];
   receivables: Receivable[];
   payments: Payment[];
   orderAudits: OrderAuditEntry[];
@@ -124,6 +136,10 @@ interface AppContextValue {
   quotationDetails: QuotationDetail[];
   orderDetails: SalesOrderDetail[];
   stockMoves: StockMove[];
+  stockReservations: StockReservation[];
+  setProducts: Dispatch<SetStateAction<Product[]>>;
+  setStockMoves: Dispatch<SetStateAction<StockMove[]>>;
+  setStockReservations: Dispatch<SetStateAction<StockReservation[]>>;
   receivables: Receivable[];
   payments: Payment[];
   kpi: ReturnType<typeof computeKpi>;
@@ -163,6 +179,13 @@ interface AppContextValue {
     delta: number,
     note?: string,
   ) => InventoryActionResult;
+  prepareWeek10Lab: () => { ok: boolean; message?: string };
+  createInventoryMove: (
+    input: Omit<CreateMoveInput, "role"> & { role?: never },
+  ) => InventoryActionResult;
+  postInventoryMove: (moveId: string) => InventoryActionResult;
+  setProductSafety: (productId: string, safety: number) => InventoryActionResult;
+  inventorySnap: (productId: string) => ReturnType<typeof getInventorySnapshot>;
   recordArPayment: (
     arId: string,
     amount: number | string,
@@ -234,6 +257,7 @@ function cloneSeed(): Omit<PersistedState, "version"> {
     quotations: initialQuotations.map((q) => ({ ...q })),
     quotationDetails: initialQuotationDetails.map((d) => ({ ...d })),
     stockMoves: initialStockMoves.map((m) => ({ ...m })),
+    stockReservations: [],
     receivables: initialReceivables.map((r) => ({ ...r })),
     payments: initialPayments.map((p) => ({ ...p })),
     orderAudits: [],
@@ -341,6 +365,14 @@ function migrateFromLegacy(parsed: {
     quotations,
     quotationDetails,
     stockMoves,
+    stockReservations: Array.isArray(
+      (parsed as { stockReservations?: unknown }).stockReservations,
+    )
+      ? (
+          (parsed as { stockReservations: StockReservation[] })
+            .stockReservations as StockReservation[]
+        ).map((r) => ({ ...r }))
+      : [],
     receivables,
     payments,
     orderAudits: Array.isArray((parsed as { orderAudits?: unknown }).orderAudits)
@@ -359,8 +391,8 @@ function readStorage(): PersistedState | null {
       window.localStorage.getItem("norway-coffee-erp-demo-v4");
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { version?: number; orders?: unknown[] };
-    // v6＝第 8 週正式狀態機；舊版強制重載完整種子
-    if (parsed?.version !== 6) {
+    // v7＝第 10 週庫存保留；舊版強制重載完整種子
+    if (parsed?.version !== 7) {
       return null;
     }
     return migrateFromLegacy(parsed);
@@ -389,6 +421,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     seed.quotationDetails,
   );
   const [stockMoves, setStockMoves] = useState<StockMove[]>(seed.stockMoves);
+  const [stockReservations, setStockReservations] = useState<StockReservation[]>(
+    seed.stockReservations ?? [],
+  );
   const [receivables, setReceivables] = useState<Receivable[]>(
     seed.receivables,
   );
@@ -400,19 +435,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const ordersRef = useRef(orders);
   const orderDetailsRef = useRef(orderDetails);
   const orderAuditsRef = useRef(orderAudits);
+  const customersRef = useRef(customers);
   const productsRef = useRef(products);
+  const quotationsRef = useRef(quotations);
+  const quotationDetailsRef = useRef(quotationDetails);
   const receivablesRef = useRef(receivables);
   const paymentsRef = useRef(payments);
   const stockMovesRef = useRef(stockMoves);
+  const stockReservationsRef = useRef(stockReservations);
   const usersRef = useRef(users);
   const currentUserIdRef = useRef(currentUserId);
   ordersRef.current = orders;
   orderDetailsRef.current = orderDetails;
   orderAuditsRef.current = orderAudits;
+  customersRef.current = customers;
   productsRef.current = products;
+  quotationsRef.current = quotations;
+  quotationDetailsRef.current = quotationDetails;
   receivablesRef.current = receivables;
   paymentsRef.current = payments;
   stockMovesRef.current = stockMoves;
+  stockReservationsRef.current = stockReservations;
   usersRef.current = users;
   currentUserIdRef.current = currentUserId;
   const [hydrated, setHydrated] = useState(false);
@@ -439,6 +482,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setQuotations(scanned.quotations);
       setQuotationDetails(stored.quotationDetails.map((d) => ({ ...d })));
       setStockMoves(stored.stockMoves.map((m) => ({ ...m })));
+      setStockReservations(
+        (stored.stockReservations ?? []).map((r) => ({ ...r })),
+      );
       setReceivables(stored.receivables.map((r) => ({ ...r })));
       setPayments(stored.payments.map((p) => ({ ...p })));
       setOrderAudits((stored.orderAudits ?? []).map((a) => ({ ...a })));
@@ -472,6 +518,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotations,
       quotationDetails,
       stockMoves,
+      stockReservations,
       receivables,
       payments,
       orderAudits,
@@ -488,6 +535,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quotations,
     quotationDetails,
     stockMoves,
+    stockReservations,
     receivables,
     orderAudits,
     payments,
@@ -509,6 +557,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setQuotations(parsed.quotations.map((q) => ({ ...q })));
         setQuotationDetails(parsed.quotationDetails.map((d) => ({ ...d })));
         setStockMoves(parsed.stockMoves.map((m) => ({ ...m })));
+        setStockReservations(
+          (parsed.stockReservations ?? []).map((r) => ({ ...r })),
+        );
         setReceivables(parsed.receivables.map((r) => ({ ...r })));
         setPayments(parsed.payments.map((p) => ({ ...p })));
         setCurrentUserId(parsed.currentUserId);
@@ -581,7 +632,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       currentUserIdRef.current = userId;
       setCurrentUserId(userId);
-      if (target.Role !== "Admin") router.push("/");
+      // Staff 不可留在設定頁；驗收／其他頁面需可切角色連續測，勿一律踢回首頁
+      if (target.Role !== "Admin" && typeof window !== "undefined") {
+        const path = window.location.pathname.replace(/\/$/, "") || "/";
+        if (path.endsWith("/settings")) router.push("/");
+      }
       return { ok: true };
     },
     [router],
@@ -589,7 +644,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setUserActive = useCallback(
     (userId: string, isActive: boolean) => {
-      if (currentUser.Role !== "Admin") {
+      if (activeUser().Role !== "Admin") {
         return {
           ok: false,
           message: "目前角色無法使用此功能（無權限修改使用者啟用狀態）。",
@@ -598,14 +653,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (userId !== "U002") {
         return { ok: false, message: "本週教學僅允許修改 U002 的啟用狀態。" };
       }
-      setUsers((prev) =>
-        prev.map((u) =>
+      setUsers((prev) => {
+        const next = prev.map((u) =>
           u.User_ID === userId ? { ...u, Is_Active: isActive } : u,
-        ),
-      );
+        );
+        usersRef.current = next;
+        return next;
+      });
       return { ok: true };
     },
-    [currentUser.Role],
+    [activeUser],
   );
 
   const convertAcceptedQuote = useCallback(
@@ -699,13 +756,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const details = orderDetailsRef.current.filter(
         (d) => d.Order_ID === orderId,
       );
-      const result = confirmOrderRule(order, details);
-      if (!result.ok || !result.order) return result;
+      const result = confirmOrderWithReserve(
+        order,
+        details,
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+      );
+      if (!result.ok || !result.order) {
+        return { ok: false, message: result.message };
+      }
       ordersRef.current = ordersRef.current.map((o) =>
         o.Order_ID === orderId ? result.order! : o,
       );
       setOrders(ordersRef.current);
-      return result;
+      if (result.reservations) {
+        stockReservationsRef.current = result.reservations;
+        setStockReservations(result.reservations);
+      }
+      return { ok: true, message: result.message, order: result.order, details };
     },
     [],
   );
@@ -731,7 +800,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderAuditsRef.current = [...orderAuditsRef.current, result.audit];
         setOrderAudits(orderAuditsRef.current);
       }
-      return result;
+      const released = releaseOrderReserves(
+        orderId,
+        stockReservationsRef.current,
+      );
+      stockReservationsRef.current = released.reservations;
+      setStockReservations(released.reservations);
+      return {
+        ...result,
+        message:
+          (result.message ?? "訂單已取消。") +
+          (released.releasedQty
+            ? ` 已釋放保留 ${released.releasedQty}（現有量不變）。`
+            : ""),
+      };
     },
     [activeUser],
   );
@@ -757,7 +839,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderAuditsRef.current = [...orderAuditsRef.current, result.audit];
         setOrderAudits(orderAuditsRef.current);
       }
-      return result;
+      const released = releaseOrderReserves(
+        orderId,
+        stockReservationsRef.current,
+      );
+      stockReservationsRef.current = released.reservations;
+      setStockReservations(released.reservations);
+      return {
+        ...result,
+        message:
+          (result.message ?? "已重開為草稿。") +
+          (released.releasedQty
+            ? ` 已先解除保留 ${released.releasedQty}（現有量不變）。`
+            : ""),
+      };
     },
     [activeUser],
   );
@@ -774,6 +869,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderDetails,
         products,
         stockMoves,
+        stockReservations,
       );
       if (!deduct.ok || !deduct.products || !deduct.moves || !deduct.order) {
         return { ok: false, message: deduct.message ?? "扣庫失敗。" };
@@ -782,6 +878,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const arRes = ensureReceivableForOrder(shipped, receivables);
       setProducts(deduct.products);
       setStockMoves(deduct.moves);
+      if (deduct.reservations) setStockReservations(deduct.reservations);
       setOrders((prev) =>
         prev.map((o) => (o.Order_ID === orderId ? shipped : o)),
       );
@@ -791,7 +888,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         message: `已出貨並扣庫${arRes.receivable ? `；應收 ${arRes.receivable.AR_ID}` : ""}`,
       };
     },
-    [orders, orderDetails, products, stockMoves, receivables],
+    [orders, orderDetails, products, stockMoves, stockReservations, receivables],
   );
 
   const unshipOrder = useCallback(
@@ -805,6 +902,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderDetails,
         products,
         stockMoves,
+        stockReservations,
       );
       if (!restore.ok || !restore.products || !restore.moves || !restore.order) {
         return { ok: false, message: restore.message ?? "還原庫存失敗。" };
@@ -812,12 +910,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setReceivables(voidRes.receivables ?? receivables);
       setProducts(restore.products);
       setStockMoves(restore.moves);
+      if (restore.reservations) setStockReservations(restore.reservations);
       setOrders((prev) =>
         prev.map((o) => (o.Order_ID === orderId ? restore.order! : o)),
       );
       return { ok: true, message: "已取消出貨並還原庫存。" };
     },
-    [orders, orderDetails, products, stockMoves, receivables, payments],
+    [orders, orderDetails, products, stockMoves, stockReservations, receivables, payments],
   );
 
   const setOrderStatus = useCallback(
@@ -849,13 +948,118 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stockMoves,
         currentUser.Role,
         note,
+        stockReservations,
       );
       if (!result.ok || !result.products || !result.moves) return result;
       setProducts(result.products);
       setStockMoves(result.moves);
+      if (result.reservations) setStockReservations(result.reservations);
       return result;
     },
-    [products, stockMoves, currentUser.Role],
+    [products, stockMoves, stockReservations, currentUser.Role],
+  );
+
+  const prepareWeek10Lab = useCallback(() => {
+    // 教學倉：P002/P011 歸零＋安全量；清空保留；維持其餘樣本
+    const nextProducts = productsRef.current.map((p) => {
+      if (p.Product_ID === "P002") {
+        return { ...p, On_Hand: 0, Safety_Stock: 8, Hold_Allocation: false };
+      }
+      if (p.Product_ID === "P011") {
+        return { ...p, On_Hand: 0, Safety_Stock: 3, Hold_Allocation: false };
+      }
+      return { ...p, Hold_Allocation: false };
+    });
+    productsRef.current = nextProducts;
+    setProducts(nextProducts);
+    stockReservationsRef.current = [];
+    setStockReservations([]);
+    // 清掉與教學品相關草稿／舊異動，避免干擾期初
+    const kept = stockMovesRef.current.filter(
+      (m) => m.Product_ID !== "P002" && m.Product_ID !== "P011",
+    );
+    stockMovesRef.current = kept;
+    setStockMoves(kept);
+    return { ok: true, message: "已準備第 10 週教學庫存（P002/P011 現有＝0）。" };
+  }, []);
+
+  const createInventoryMove = useCallback(
+    (input: Omit<CreateMoveInput, "role">): InventoryActionResult => {
+      const result = createStockMove(
+        { ...input, role: activeUser().Role },
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+      );
+      if (result.products) {
+        productsRef.current = result.products;
+        setProducts(result.products);
+      }
+      if (result.moves) {
+        stockMovesRef.current = result.moves;
+        setStockMoves(result.moves);
+      }
+      if (result.reservations) {
+        stockReservationsRef.current = result.reservations;
+        setStockReservations(result.reservations);
+      }
+      return result;
+    },
+    [activeUser],
+  );
+
+  const postInventoryMove = useCallback(
+    (moveId: string): InventoryActionResult => {
+      const result = postStockMove(
+        moveId,
+        activeUser().Role,
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+      );
+      if (result.products) {
+        productsRef.current = result.products;
+        setProducts(result.products);
+      }
+      if (result.moves) {
+        stockMovesRef.current = result.moves;
+        setStockMoves(result.moves);
+      }
+      if (result.reservations) {
+        stockReservationsRef.current = result.reservations;
+        setStockReservations(result.reservations);
+      }
+      return result;
+    },
+    [activeUser],
+  );
+
+  const setProductSafety = useCallback(
+    (productId: string, safety: number): InventoryActionResult => {
+      const result = setSafetyStock(
+        productId,
+        safety,
+        productsRef.current,
+        activeUser().Role,
+      );
+      if (result.products) {
+        productsRef.current = result.products;
+        setProducts(result.products);
+      }
+      return result;
+    },
+    [activeUser],
+  );
+
+  const inventorySnap = useCallback(
+    (productId: string) =>
+      getInventorySnapshot(
+        productId,
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+      ),
+    [],
   );
 
   const recordArPayment = useCallback(
@@ -884,23 +1088,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const createCustomer = useCallback(
     (input: CustomerCreateInput): ActionResult => {
-      const id = nextCustomerId(customers);
-      if (customers.some((c) => c.Customer_ID === id)) {
+      const list = customersRef.current;
+      const id = nextCustomerId(list);
+      if (list.some((c) => c.Customer_ID === id)) {
         return {
           ok: false,
           message: `客戶編號 ${id} 已存在，無法建立。`,
           errors: { Customer_ID: `客戶編號 ${id} 已存在。` },
         };
       }
-      const built = buildNewCustomer(id, input, currentUser.Role);
+      const built = buildNewCustomer(id, input, activeUser().Role);
       if (!built.customer) {
         return { ok: false, message: built.message, errors: built.errors };
       }
       const duplicateHint = findDuplicateNameHint(
-        customers,
+        list,
         built.customer.Customer_Name,
       );
-      setCustomers((prev) => [...prev, built.customer!]);
+      customersRef.current = [...list, built.customer];
+      setCustomers(customersRef.current);
       return {
         ok: true,
         customer: built.customer,
@@ -909,14 +1115,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : `已建立 ${built.customer.Customer_ID}`,
       };
     },
-    [customers, currentUser.Role],
+    [activeUser],
   );
 
   const updateCustomer = useCallback(
     (customerId: string, patch: CustomerUpdateInput): ActionResult => {
-      const existing = customers.find((c) => c.Customer_ID === customerId);
+      const list = customersRef.current;
+      const existing = list.find((c) => c.Customer_ID === customerId);
       if (!existing) return { ok: false, message: "找不到該客戶。" };
-      const applied = applyCustomerPatch(existing, patch, currentUser.Role);
+      const applied = applyCustomerPatch(existing, patch, activeUser().Role);
       if (!applied.customer) {
         return {
           ok: false,
@@ -925,22 +1132,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         };
       }
       const duplicateHint = findDuplicateNameHint(
-        customers,
+        list,
         applied.customer.Customer_Name,
         customerId,
       );
-      setCustomers((prev) =>
-        prev.map((c) =>
-          c.Customer_ID === customerId ? applied.customer! : c,
-        ),
+      customersRef.current = list.map((c) =>
+        c.Customer_ID === customerId ? applied.customer! : c,
       );
+      setCustomers(customersRef.current);
       return {
         ok: true,
         customer: applied.customer,
         message: duplicateHint ?? "已儲存客戶資料。",
       };
     },
-    [customers, currentUser.Role],
+    [activeUser],
   );
 
   const setCustomerActive = useCallback(
@@ -979,26 +1185,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const createProduct = useCallback(
     (input: ProductCreateInput): ProductActionResult => {
-      const id = nextProductId(products);
-      const built = buildNewProduct(id, input, currentUser.Role);
+      const list = productsRef.current;
+      const id = nextProductId(list);
+      const built = buildNewProduct(id, input, activeUser().Role);
       if (!built.product) {
         return { ok: false, message: built.message, errors: built.errors };
       }
-      setProducts((prev) => [...prev, built.product!]);
+      productsRef.current = [...list, built.product];
+      setProducts(productsRef.current);
       return {
         ok: true,
         product: built.product,
         message: `已建立 ${built.product.Product_ID}`,
       };
     },
-    [products, currentUser.Role],
+    [activeUser],
   );
 
   const updateProduct = useCallback(
     (productId: string, patch: ProductUpdateInput): ProductActionResult => {
-      const existing = products.find((p) => p.Product_ID === productId);
+      const list = productsRef.current;
+      const existing = list.find((p) => p.Product_ID === productId);
       if (!existing) return { ok: false, message: "找不到該商品。" };
-      const applied = applyProductPatch(existing, patch, currentUser.Role);
+      const applied = applyProductPatch(existing, patch, activeUser().Role);
       if (!applied.product) {
         return {
           ok: false,
@@ -1006,18 +1215,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           errors: applied.errors,
         };
       }
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.Product_ID === productId ? applied.product! : p,
-        ),
+      productsRef.current = list.map((p) =>
+        p.Product_ID === productId ? applied.product! : p,
       );
+      setProducts(productsRef.current);
       return {
         ok: true,
         product: applied.product,
         message: "已儲存商品資料。",
       };
     },
-    [products, currentUser.Role],
+    [activeUser],
   );
 
   const softDeactivateProduct = useCallback(
@@ -1034,63 +1242,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const createQuote = useCallback(
     (input: QuotationCreateInput): QuoteActionResult => {
-      const id = nextQuoteId(quotations);
+      const id = nextQuoteId(quotationsRef.current);
       const result = buildQuotation(
         id,
         input,
-        currentUser.Role,
-        customers,
-        products,
+        activeUser().Role,
+        customersRef.current,
+        productsRef.current,
       );
       if (!result.ok || !result.quotation || !result.details) return result;
-      setQuotations((prev) => [...prev, result.quotation!]);
-      setQuotationDetails((prev) => [...prev, ...result.details!]);
+      quotationsRef.current = [...quotationsRef.current, result.quotation];
+      quotationDetailsRef.current = [
+        ...quotationDetailsRef.current,
+        ...result.details,
+      ];
+      setQuotations(quotationsRef.current);
+      setQuotationDetails(quotationDetailsRef.current);
       return result;
     },
-    [quotations, customers, products, currentUser.Role],
+    [activeUser],
   );
 
   const updateDraftQuote = useCallback(
     (quoteId: string, input: QuotationUpdateInput): QuoteActionResult => {
-      const existing = quotations.find((q) => q.Quote_ID === quoteId);
+      const existing = quotationsRef.current.find((q) => q.Quote_ID === quoteId);
       if (!existing) return { ok: false, message: "找不到該報價。" };
-      const existingDetails = quotationDetails.filter(
+      const existingDetails = quotationDetailsRef.current.filter(
         (d) => d.Quote_ID === quoteId,
       );
       const result = updateDraftQuotation(
         existing,
         existingDetails,
         input,
-        currentUser.Role,
-        products,
+        activeUser().Role,
+        productsRef.current,
       );
       if (!result.ok || !result.quotation) return result;
-      setQuotations((prev) =>
-        prev.map((q) => (q.Quote_ID === quoteId ? result.quotation! : q)),
+      quotationsRef.current = quotationsRef.current.map((q) =>
+        q.Quote_ID === quoteId ? result.quotation! : q,
       );
+      setQuotations(quotationsRef.current);
       if (result.details) {
-        setQuotationDetails((prev) => [
-          ...prev.filter((d) => d.Quote_ID !== quoteId),
-          ...result.details!,
-        ]);
+        quotationDetailsRef.current = [
+          ...quotationDetailsRef.current.filter((d) => d.Quote_ID !== quoteId),
+          ...result.details,
+        ];
+        setQuotationDetails(quotationDetailsRef.current);
       }
       return result;
     },
-    [quotations, quotationDetails, products, currentUser.Role],
+    [activeUser],
   );
 
   const setQuoteStatus = useCallback(
     (quoteId: string, status: QuoteStatus): QuoteActionResult => {
-      const existing = quotations.find((q) => q.Quote_ID === quoteId);
+      const existing = quotationsRef.current.find((q) => q.Quote_ID === quoteId);
       if (!existing) return { ok: false, message: "找不到該報價。" };
-      const result = transitionQuoteStatus(existing, status, currentUser.Role);
+      const result = transitionQuoteStatus(existing, status, activeUser().Role);
       if (!result.ok || !result.quotation) return result;
-      setQuotations((prev) =>
-        prev.map((q) => (q.Quote_ID === quoteId ? result.quotation! : q)),
+      quotationsRef.current = quotationsRef.current.map((q) =>
+        q.Quote_ID === quoteId ? result.quotation! : q,
       );
+      setQuotations(quotationsRef.current);
       return result;
     },
-    [quotations, currentUser.Role],
+    [activeUser],
   );
 
   const tryForceAcceptQuote = useCallback(
@@ -1103,8 +1319,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       usersRef.current = next.users;
       ordersRef.current = next.orders;
       orderDetailsRef.current = next.orderDetails;
+      customersRef.current = next.customers;
       productsRef.current = next.products;
+      quotationsRef.current = next.quotations;
+      quotationDetailsRef.current = next.quotationDetails;
       stockMovesRef.current = next.stockMoves;
+      stockReservationsRef.current = next.stockReservations ?? [];
       receivablesRef.current = next.receivables;
       paymentsRef.current = next.payments;
       orderAuditsRef.current = next.orderAudits ?? [];
@@ -1117,6 +1337,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setQuotations(next.quotations);
       setQuotationDetails(next.quotationDetails);
       setStockMoves(next.stockMoves);
+      setStockReservations(next.stockReservations ?? []);
       setReceivables(next.receivables);
       setPayments(next.payments);
       setOrderAudits(next.orderAudits ?? []);
@@ -1140,6 +1361,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loadBaselineData = useCallback(() => {
     const next = cloneSeed();
     next.customers = baselineCustomers.map((c) => ({ ...c }));
+    // 與第 6 週基準一致：僅 SO001–SO005，避免 C006 幽靈訂單佔號
+    next.orders = baselineOrders.map((o) => ensureOrderShape({ ...o }));
+    next.orderDetails = baselineOrderDetails.map((d) => ensureDetailShape({ ...d }));
     applySeedLike(next);
   }, [applySeedLike]);
 
@@ -1160,6 +1384,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotations,
       quotationDetails,
       stockMoves: stockMovesRef.current,
+      stockReservations: stockReservationsRef.current,
       receivables: receivablesRef.current,
       payments: paymentsRef.current,
       orderAudits: orderAuditsRef.current,
@@ -1172,13 +1397,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (raw: string) => {
       try {
         const parsed = JSON.parse(raw) as { version?: number };
+        // v7 直接套用；舊版走 migrate
+        if (parsed?.version === STORAGE_VERSION) {
+          const full = parsed as PersistedState;
+          const rest = { ...full };
+          delete (rest as { version?: number }).version;
+          if (!Array.isArray(rest.stockReservations)) {
+            rest.stockReservations = [];
+          }
+          applySeedLike(rest as Omit<PersistedState, "version">);
+          return {
+            ok: true,
+            message: `已匯入 ${full.orders.length} 張訂單、${full.quotations.length} 張報價、${(full.stockReservations ?? []).length} 筆保留。`,
+          };
+        }
         const migrated = migrateFromLegacy(
           parsed as Parameters<typeof migrateFromLegacy>[0],
         );
         if (!migrated) {
           return {
             ok: false,
-            message: "無法匯入：請使用本系統匯出的 v6 JSON。",
+            message: "無法匯入：請使用本系統匯出的 v7 JSON。",
           };
         }
         const rest = { ...migrated };
@@ -1206,6 +1445,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quotationDetails,
     orderDetails,
     stockMoves,
+    stockReservations,
+    setProducts,
+    setStockMoves,
+    setStockReservations,
     receivables,
     payments,
     orderAudits,
@@ -1224,6 +1467,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     shipConfirmedOrder,
     unshipOrder,
     adjustInventory,
+    prepareWeek10Lab,
+    createInventoryMove,
+    postInventoryMove,
+    setProductSafety,
+    inventorySnap,
     recordArPayment,
     createCustomer,
     updateCustomer,
