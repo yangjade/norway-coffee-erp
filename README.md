@@ -1,8 +1,8 @@
-# 挪威的咖啡｜配銷 ERP 首頁 v1
+# 挪威的咖啡｜配銷 ERP
 
-可操作教學系統首頁（角色權限＋四項 KPI）。企業情境為**挪威的咖啡**。
+可操作教學系統（角色權限＋首頁 KPI＋客戶／商品／報價／報價轉訂單／訂單／**出貨**／庫存／應收）。企業情境為**挪威的咖啡**（Nordic specialty coffee）。
 
-靜態匯出（`output: "export"`）→ `out/`，可部署到 **GitHub Pages**。
+靜態匯出（`output: "export"`）→ `out/`，部署至 **GitHub Pages**：https://yangjade.github.io/norway-coffee-erp/
 
 ## 本機啟動
 
@@ -20,44 +20,34 @@ npm run build
 npm run preview:static
 ```
 
-## 部署到 GitHub Pages（穩定 github.io）
-
-本 repo 已含 `.github/workflows/deploy-github-pages.yml`：push `main` 後會 build `out/` 並部署。
-
-1. 在 **github.com** 建立空 repo（建議名：`norway-coffee-erp`）
-2. 把本專案推上去（目前 Cursor Origin 遠端**不是** GitHub）：
-
-```bash
-git remote add github https://github.com/<你的帳號>/norway-coffee-erp.git
-git push -u github main
-```
-
-3. GitHub → **Settings → Pages → Build and deployment → Source: GitHub Actions**
-4. 等 Actions 綠燈後開啟：
-
-- 專案頁：`https://<帳號>.github.io/norway-coffee-erp/`
-- 若 repo 名是 `<帳號>.github.io`：根網址 `https://<帳號>.github.io/`
-
-Workflow 會依 repo 名稱自動設定 `BASE_PATH`（專案頁為 `/repo-name`）。本機若要模擬專案頁：
+專案頁 basePath：
 
 ```bash
 BASE_PATH=/norway-coffee-erp npm run build
+npm run preview:static
 ```
 
-### 需要你提供的憑證（代理人無法代推 GitHub 時）
+## 模組摘要
 
-環境內 `GITHUB_TOKEN` 無效、無 SSH、無 `GH_TOKEN`。請擇一：
+| 週次 | 模組 | 能力 |
+|------|------|------|
+| 5–6 | 客戶／訂單 | 主檔 CRUD、狀態、KPI |
+| 7 | 商品／報價 | 牌價、快照單價、狀態流、搜尋篩選、列印 |
+| **8** | **報價轉訂單** | Accepted → Sales_Order＋明細；quote↔order；停用客戶／商品不可轉 |
+| **10** | **庫存** | Product.On_Hand；出貨扣庫／取消還原；Admin 手動調整；異動紀錄 |
+| **11** | **出貨** | 揀貨清單、On_Hand 檢核、確認出貨（同訂單扣庫＋應收）；可取消出貨 |
+| **12** | **應收** | 出貨產生 AR；登記收款；未收餘額（非營所稅） |
 
-- 在本機／Cursor 登入 GitHub 後自行 `git push`，或
-- 提供有效 **Personal Access Token**（權限：`repo` + `pages` / `workflow`）設成 secret `GITHUB_TOKEN` 或 `GH_TOKEN`
+資料：`localStorage` 鍵 `norway-coffee-erp-demo-v4`（會自 v2／v3 遷移）。
 
-## 功能摘要
+## 建議點擊路徑
 
-- 六選單：首頁／客戶／商品／訂單／出貨（預留）／使用者設定
-- Admin ↔ Staff 模擬切換（標示「教學用權限模擬」）
-- 四項 KPI 由樣本資料計算
-- 三層權限：選單隱藏、設定頁擋下、修改操作檢查
+報價 Q003（Accepted）→ 轉成訂單 → **出貨**揀貨確認 → 庫存 On_Hand 下降 → 應收出現 → 登記收款。
+
+## 部署
+
+`.github/workflows/deploy-github-pages.yml`：push `main` 後 build `out/`。亦可將 `out/` 推到 `gh-pages` 分支。
 
 ## 技術
 
-Next.js 15 + TypeScript + Tailwind。樣本資料在瀏覽器記憶體；重新整理或「重設樣本」還原。
+Next.js 15 + TypeScript + Tailwind。靜態匯出，無伺服器 API。
