@@ -7,6 +7,70 @@ import { WEEK8_BUSINESS_DATE } from "@/lib/order-rules";
 
 type Row = { id: string; label: string; result: string; pass?: boolean };
 
+/** 人話：要測什麼／過了會怎樣 */
+const SCENARIO_HELP: { id: string; label: string; help: string }[] = [
+  {
+    id: "01",
+    label: "有效已接受報價轉單",
+    help: "測：已接受報價一鍵轉單。過了：得到草稿單，明細 2 行、未稅 7560。",
+  },
+  {
+    id: "02",
+    label: "同報價連按／再轉",
+    help: "測：同一報價連按轉單。過了：不會多開第二張，仍指回同一訂單。",
+  },
+  {
+    id: "03",
+    label: "數量 0／-1 拒存",
+    help: "測：草稿把數量改成 0 或 -1。過了：拒絕儲存，原數量不動。",
+  },
+  {
+    id: "04",
+    label: "承諾早於訂單日拒確認",
+    help: "測：承諾日早於訂單日就按確認。過了：擋下，無法確認。",
+  },
+  {
+    id: "05",
+    label: "晚交未同意可存不可確認",
+    help: "測：承諾晚於期望且未勾同意。過了：可存草稿，但確認失敗。",
+  },
+  {
+    id: "06",
+    label: "逾期 Accepted 拒轉",
+    help: "測：有效期已過的 Accepted 報價轉單。過了：拒絕轉單。",
+  },
+  {
+    id: "07",
+    label: "未接受報價拒轉",
+    help: "測：未接受狀態的報價轉單。過了：拒絕轉單。",
+  },
+  {
+    id: "08",
+    label: "Staff 改／取消已確認拒",
+    help: "測：Staff 改已確認單或取消。過了：兩種操作都被擋。",
+  },
+  {
+    id: "09",
+    label: "Admin 重開改 12 再確認＝8694",
+    help: "測：Admin 重開→改量 12→再確認。過了：含稅總額 8694，有重開稽核。",
+  },
+  {
+    id: "10",
+    label: "主檔改 700 訂單單價仍 600",
+    help: "測：改商品主檔牌價。過了：訂單快照單價仍 600，不被帶動。",
+  },
+  {
+    id: "11",
+    label: "Admin 取消另一確認單",
+    help: "測：Admin 取消另一張已確認單。過了：變已取消，且不能再確認。",
+  },
+  {
+    id: "12",
+    label: "編號／客戶／狀態可查",
+    help: "測：用訂單號、客戶、狀態找單。過了：三種查詢都能命中。",
+  },
+];
+
 /** 第 8 週驗收 01–12（同步讀寫透過 context refs） */
 export function Week8Acceptance() {
   const router = useRouter();
@@ -266,18 +330,34 @@ export function Week8Acceptance() {
       <p className="text-[11px] text-[var(--muted)]">
         會重設樣本後依序操作；案例 7,560／改量 8,694。確認不扣庫。
       </p>
-      {rows.length > 0 && (
-        <ul className="space-y-1 text-xs">
-          {rows.map((r) => (
+      <ol className="space-y-2 text-xs">
+        {SCENARIO_HELP.map((s) => {
+          const r = rows.find((x) => x.id === s.id);
+          return (
             <li
-              key={r.id}
-              className={r.pass ? "text-[var(--brand-deep)]" : "text-[var(--danger)]"}
+              key={s.id}
+              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
             >
-              <span className="font-mono">{r.id}</span> {r.label} — {r.result}
+              <p className="font-medium text-[var(--ink)]">
+                <span className="font-mono text-[var(--brand)]">{s.id}</span>{" "}
+                {s.label}
+                {r && (
+                  <span
+                    className={
+                      r.pass
+                        ? "ml-2 text-[var(--brand-deep)]"
+                        : "ml-2 text-[var(--danger)]"
+                    }
+                  >
+                    · {r.result}
+                  </span>
+                )}
+              </p>
+              <p className="mt-0.5 text-[var(--muted)]">{s.help}</p>
             </li>
-          ))}
-        </ul>
-      )}
+          );
+        })}
+      </ol>
     </div>
   );
 }

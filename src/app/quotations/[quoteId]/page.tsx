@@ -108,6 +108,41 @@ export default function QuotationDetailPage() {
         </div>
       )}
 
+      {quote.Status === "Accepted" && !linkedOrder && (
+        <div className="no-print rounded-[var(--radius)] border-2 border-[var(--brand)] bg-[var(--brand-soft)]/50 px-4 py-4 sm:px-5">
+          <p className="text-sm font-semibold text-[var(--brand-deep)]">
+            這張報價已接受，可以轉成銷售訂單
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            會帶入客戶、商品、單價與折扣快照；初始為草稿，確認前不扣庫存。
+          </p>
+          <button
+            type="button"
+            className="btn-primary mt-3 px-6 py-2.5 text-base font-semibold"
+            onClick={convert}
+          >
+            轉成訂單
+          </button>
+        </div>
+      )}
+
+      {linkedOrder && (
+        <div className="no-print rounded-[var(--radius)] border border-[var(--accent)]/50 bg-[var(--accent-soft)]/40 px-4 py-4 sm:px-5">
+          <p className="text-sm font-semibold text-[var(--brand-deep)]">
+            已轉成訂單
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            同一報價不會再產生第二張單；點下方開啟原訂單。
+          </p>
+          <Link
+            href={`/orders/${linkedOrder.Order_ID}/`}
+            className="btn-primary mt-3 inline-flex px-5 py-2 text-sm font-semibold"
+          >
+            開啟訂單 {linkedOrder.Order_ID}
+          </Link>
+        </div>
+      )}
+
       {locked && (
         <div className="no-print">
           <Notice kind="info">
