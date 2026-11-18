@@ -151,22 +151,26 @@ export default function InventoryPage() {
     >
       <PageHeader
         title="庫存"
-        description="WH01 · 現有／保留／可用 · 確認訂單只保留不扣現有"
+        description="挪威的咖啡 · 教學倉 WH01 · 一眼看現有／保留／可用"
         actions={
           <Link href="/acceptance/" className="btn-ghost text-sm">
-            驗收區
+            驗收 01–12
           </Link>
         }
       />
 
       <Notice kind="info">
-        可用＝現有−保留。確認訂單：保留↑、可用↓、現有不變。出貨（第11週）才扣現有。低庫存仍可接單。
-        低庫存 {counts.low} · 缺貨 {counts.out} · 正常 {counts.normal}
+        <strong className="font-medium text-[var(--brand-deep)]">怎麼讀：</strong>
+        現有＝倉庫裡還在的；保留＝已答應給訂單、還沒出貨；可用＝現有−保留（才能接新單）。
+        確認訂單只加保留、不扣現有。低庫存仍可接單；缺貨＝可用 0。
+        <span className="mt-1 block text-[var(--muted)]">
+          現況：正常 {counts.normal} · 低庫存 {counts.low} · 缺貨 {counts.out}
+        </span>
       </Notice>
 
       {flash && <Notice kind="info">{flash}</Notice>}
       {error && (
-        <Notice kind="error" title="無法完成">
+        <Notice kind="error" title="說清楚發生什麼事">
           {error}
         </Notice>
       )}
@@ -208,9 +212,9 @@ export default function InventoryPage() {
                 <th>商品</th>
                 <th>倉</th>
                 <th>單位</th>
-                <th>現有</th>
-                <th>保留</th>
-                <th>可用</th>
+                <th title="倉庫裡還在的數量">現有</th>
+                <th title="已答應訂單、尚未出貨">保留</th>
+                <th title="現有 − 保留">可用</th>
                 <th>安全</th>
                 <th>警示</th>
                 {isAdmin ? <th>安全量</th> : null}
@@ -218,31 +222,58 @@ export default function InventoryPage() {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.Product_ID}>
+                <tr
+                  key={r.Product_ID}
+                  className={
+                    r.Alert === "缺貨"
+                      ? "bg-[var(--danger-bg)]/60"
+                      : r.Alert === "低庫存"
+                        ? "bg-[var(--warn-bg)]/70"
+                        : undefined
+                  }
+                >
                   <td>
                     <span className="font-mono text-xs">{r.Product_ID}</span>
                     <div className="text-sm">{r.Product_Name}</div>
                     {r.Hold_Allocation ? (
-                      <div className="text-xs text-[var(--danger)]">待處理異常</div>
+                      <div className="text-xs text-[var(--danger)]">
+                        盤點異常：暫停新保留／出庫
+                      </div>
                     ) : null}
                   </td>
                   <td className="font-mono text-xs">{r.Warehouse_ID}</td>
                   <td>{r.Unit}</td>
-                  <td className="tabular-nums font-medium">{r.On_Hand}</td>
-                  <td className="tabular-nums">{r.Reserved}</td>
-                  <td className="tabular-nums font-medium">{r.Available}</td>
-                  <td className="tabular-nums">{r.Safety_Stock}</td>
+                  <td className="tabular-nums text-[var(--muted)]">{r.On_Hand}</td>
+                  <td className="tabular-nums text-[var(--accent)]">
+                    {r.Reserved}
+                  </td>
+                  <td
+                    className={`tabular-nums text-base font-semibold ${
+                      r.Available <= 0
+                        ? "text-[var(--danger)]"
+                        : "text-[var(--brand-deep)]"
+                    }`}
+                  >
+                    {r.Available}
+                  </td>
+                  <td className="tabular-nums text-[var(--muted)]">
+                    {r.Safety_Stock}
+                  </td>
                   <td>
                     <span
                       className={
                         r.Alert === "缺貨"
-                          ? "text-[var(--danger)]"
+                          ? "font-medium text-[var(--danger)]"
                           : r.Alert === "低庫存"
-                            ? "text-amber-700"
+                            ? "font-medium text-[var(--espresso)]"
                             : "text-[var(--muted)]"
                       }
                     >
-                      {r.Alert}
+                      {r.Alert === "缺貨"
+                        ? "缺貨（可用 0）"
+                        : r.Alert === "低庫存"
+                          ? "低庫存（≤安全）"
+                          : "正常"}
                     </span>
                   </td>
                   {isAdmin ? (

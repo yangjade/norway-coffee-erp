@@ -22,9 +22,14 @@ import {
 import {
   adjustOnHand,
   confirmOrderWithReserve,
+  createStockMove,
   deductStockForShip,
+  getInventorySnapshot,
+  postStockMove,
   releaseOrderReserves,
   restoreStockForUnship,
+  setSafetyStock,
+  type CreateMoveInput,
   type InventoryActionResult,
 } from "./inventory-rules";
 import {
@@ -172,6 +177,13 @@ interface AppContextValue {
     delta: number,
     note?: string,
   ) => InventoryActionResult;
+  prepareWeek10Lab: () => { ok: boolean; message?: string };
+  createInventoryMove: (
+    input: Omit<CreateMoveInput, "role"> & { role?: never },
+  ) => InventoryActionResult;
+  postInventoryMove: (moveId: string) => InventoryActionResult;
+  setProductSafety: (productId: string, safety: number) => InventoryActionResult;
+  inventorySnap: (productId: string) => ReturnType<typeof getInventorySnapshot>;
   recordArPayment: (
     arId: string,
     amount: number | string,
@@ -929,6 +941,109 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [products, stockMoves, stockReservations, currentUser.Role],
   );
 
+  const prepareWeek10Lab = useCallback(() => {
+    // 教學倉：P002/P011 歸零＋安全量；清空保留；維持其餘樣本
+    const nextProducts = productsRef.current.map((p) => {
+      if (p.Product_ID === "P002") {
+        return { ...p, On_Hand: 0, Safety_Stock: 8, Hold_Allocation: false };
+      }
+      if (p.Product_ID === "P011") {
+        return { ...p, On_Hand: 0, Safety_Stock: 3, Hold_Allocation: false };
+      }
+      return { ...p, Hold_Allocation: false };
+    });
+    productsRef.current = nextProducts;
+    setProducts(nextProducts);
+    stockReservationsRef.current = [];
+    setStockReservations([]);
+    // 清掉與教學品相關草稿／舊異動，避免干擾期初
+    const kept = stockMovesRef.current.filter(
+      (m) => m.Product_ID !== "P002" && m.Product_ID !== "P011",
+    );
+    stockMovesRef.current = kept;
+    setStockMoves(kept);
+    return { ok: true, message: "已準備第 10 週教學庫存（P002/P011 現有＝0）。" };
+  }, []);
+
+  const createInventoryMove = useCallback(
+    (input: Omit<CreateMoveInput, "role">): InventoryActionResult => {
+      const result = createStockMove(
+        { ...input, role: activeUser().Role },
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+      );
+      if (result.products) {
+        productsRef.current = result.products;
+        setProducts(result.products);
+      }
+      if (result.moves) {
+        stockMovesRef.current = result.moves;
+        setStockMoves(result.moves);
+      }
+      if (result.reservations) {
+        stockReservationsRef.current = result.reservations;
+        setStockReservations(result.reservations);
+      }
+      return result;
+    },
+    [activeUser],
+  );
+
+  const postInventoryMove = useCallback(
+    (moveId: string): InventoryActionResult => {
+      const result = postStockMove(
+        moveId,
+        activeUser().Role,
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+      );
+      if (result.products) {
+        productsRef.current = result.products;
+        setProducts(result.products);
+      }
+      if (result.moves) {
+        stockMovesRef.current = result.moves;
+        setStockMoves(result.moves);
+      }
+      if (result.reservations) {
+        stockReservationsRef.current = result.reservations;
+        setStockReservations(result.reservations);
+      }
+      return result;
+    },
+    [activeUser],
+  );
+
+  const setProductSafety = useCallback(
+    (productId: string, safety: number): InventoryActionResult => {
+      const result = setSafetyStock(
+        productId,
+        safety,
+        productsRef.current,
+        activeUser().Role,
+      );
+      if (result.products) {
+        productsRef.current = result.products;
+        setProducts(result.products);
+      }
+      return result;
+    },
+    [activeUser],
+  );
+
+  const inventorySnap = useCallback(
+    (productId: string) =>
+      getInventorySnapshot(
+        productId,
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+      ),
+    [],
+  );
+
   const recordArPayment = useCallback(
     (
       arId: string,
@@ -1255,6 +1370,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     shipConfirmedOrder,
     unshipOrder,
     adjustInventory,
+    prepareWeek10Lab,
+    createInventoryMove,
+    postInventoryMove,
+    setProductSafety,
+    inventorySnap,
     recordArPayment,
     createCustomer,
     updateCustomer,

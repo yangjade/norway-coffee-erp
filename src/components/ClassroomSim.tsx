@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { Week8Acceptance } from "@/components/Week8Acceptance";
+import { Week10Acceptance } from "@/components/Week10Acceptance";
 import { useApp } from "@/lib/app-context";
 import { BASE_DATE } from "@/lib/sample-data";
 
@@ -53,7 +54,7 @@ const WEEK1012_ACTIONS: {
   {
     key: "goto-inventory",
     label: "打開庫存",
-    hint: "On_Hand · 出貨扣庫",
+    hint: "現有／保留／可用 · 警示",
     tone: "neutral",
   },
   {
@@ -416,6 +417,8 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
           </div>
 
           <Week8Acceptance />
+
+          <Week10Acceptance />
 
           <div className="border-t border-[var(--border)] px-4 pb-1 pt-3 sm:px-5">
             <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">
