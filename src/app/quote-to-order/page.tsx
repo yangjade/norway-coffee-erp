@@ -5,8 +5,12 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/app-context";
 import { formatTwd } from "@/lib/format";
-import { orderAlreadyFromQuote } from "@/lib/order-rules";
-import { statusLabel } from "@/lib/quotation-rules";
+import {
+  defaultDeliveryDate,
+  orderAlreadyFromQuote,
+  ORDER_STATUS_RULES_ZH,
+} from "@/lib/order-rules";
+import { statusLabel, todayLocalDate } from "@/lib/quotation-rules";
 import { Notice, PageHeader } from "@/components/Notice";
 
 export default function QuoteToOrderPage() {
@@ -23,6 +27,9 @@ export default function QuoteToOrderPage() {
   } = useApp();
   const [flash, setFlash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deliveryByQuote, setDeliveryByQuote] = useState<Record<string, string>>(
+    {},
+  );
 
   const accepted = useMemo(
     () =>
@@ -31,6 +38,12 @@ export default function QuoteToOrderPage() {
         .sort((a, b) => b.Quote_Date.localeCompare(a.Quote_Date)),
     [quotations],
   );
+
+  function deliveryFor(quoteId: string) {
+    return (
+      deliveryByQuote[quoteId] ?? defaultDeliveryDate(todayLocalDate())
+    );
+  }
 
   function canConvert(quoteId: string, customerId: string) {
     const linked = orderAlreadyFromQuote(orders, quoteId);
@@ -56,7 +69,9 @@ export default function QuoteToOrderPage() {
   function handleConvert(quoteId: string) {
     setFlash(null);
     setError(null);
-    const result = convertAcceptedQuote(quoteId);
+    const result = convertAcceptedQuote(quoteId, {
+      deliveryDate: deliveryFor(quoteId),
+    });
     if (!result.ok || !result.order) {
       setError(result.message ?? "轉單失敗");
       return;
@@ -75,10 +90,14 @@ export default function QuoteToOrderPage() {
   }
 
   return (
-    <div className="space-y-5 animate-rise">
+    <div
+      className="space-y-5 animate-rise"
+      data-week8="quote-to-order"
+      data-week8-marker="week8-delivery-20261118"
+    >
       <PageHeader
         title="報價轉訂單"
-        description="Accepted 報價 → Sales_Order＋明細（複製客戶／Qty／Unit_Price 快照）· 第 8 週"
+        description="Accepted 報價 → Sales_Order＋明細（客戶／商品／單價／數量／總額快照）＋交期 · 第 8 週"
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/quotations/" className="btn-ghost text-sm">
@@ -87,13 +106,25 @@ export default function QuoteToOrderPage() {
             <Link href="/orders/" className="btn-ghost text-sm">
               訂單列表
             </Link>
+            <Link href="/acceptance/" className="btn-ghost text-sm">
+              驗收區
+            </Link>
           </div>
         }
       />
 
       <Notice kind="info">
-        僅狀態為 Accepted 的報價可轉單；停用客戶或明細含停用商品時會拒絕。同一報價不可重複轉換。轉出訂單預設「待確認」，可再到訂單改狀態／出貨扣庫。
+        僅 Accepted 可轉單；停用客戶／停用商品會拒絕；同一報價不可重複轉換。轉出訂單預設「待確認」，並寫入交期（Delivery_Date）。本週核心不扣庫、不建應收——出貨後才走第 10／12 週。
       </Notice>
+
+      <div className="panel px-4 py-3.5 text-xs leading-relaxed text-[var(--muted)]">
+        <p className="font-medium text-[var(--brand-deep)]">訂單狀態機（第 8 週）</p>
+        <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+          {ORDER_STATUS_RULES_ZH.map((rule) => (
+            <li key={rule}>{rule}</li>
+          ))}
+        </ul>
+      </div>
 
       {flash && (
         <div className="animate-success-flash">
@@ -109,7 +140,7 @@ export default function QuoteToOrderPage() {
       {accepted.length === 0 ? (
         <Notice kind="empty" title="尚無 Accepted 報價">
           請先到報價詳細將 Sent 報價標為 Accepted（管理者），再回來轉單。樣本
-          Q003 為 Accepted 可直接試轉。
+          Q003／Q005 為 Accepted 可直接試轉。
           <div className="mt-3">
             <Link href="/quotations/" className="btn-primary">
               前往報價
@@ -125,7 +156,8 @@ export default function QuoteToOrderPage() {
                 <th>客戶</th>
                 <th>報價日</th>
                 <th>狀態</th>
-                <th>總額</th>
+                <th>總額快照</th>
+                <th>交期 Delivery_Date</th>
                 <th>連結訂單</th>
                 <th>操作</th>
               </tr>
@@ -151,6 +183,26 @@ export default function QuoteToOrderPage() {
                     <td>{statusLabel(q.Status)}</td>
                     <td className="tabular-nums">
                       NT$ {formatTwd(q.Total)}
+                    </td>
+                    <td>
+                      {linked ? (
+                        <span className="font-mono text-xs">
+                          {linked.Delivery_Date}
+                        </span>
+                      ) : (
+                        <input
+                          type="date"
+                          className="field text-xs"
+                          value={deliveryFor(q.Quote_ID)}
+                          aria-label={`${q.Quote_ID} 交期`}
+                          onChange={(e) =>
+                            setDeliveryByQuote((prev) => ({
+                              ...prev,
+                              [q.Quote_ID]: e.target.value,
+                            }))
+                          }
+                        />
+                      )}
                     </td>
                     <td>
                       {linked ? (

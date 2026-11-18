@@ -56,7 +56,7 @@ export default function OrdersPage() {
     <div className="space-y-5 animate-rise">
       <PageHeader
         title="訂單"
-        description="搜尋、篩選、排序與分頁；點選 Order_ID 進入工作區。改為已出貨會扣庫並產生應收。"
+        description="第 8 週：交期 Delivery_Date 與訂單狀態；點選 Order_ID 進入工作區。改為已出貨會扣庫並產生應收（第 10／12 週）。"
         actions={
           <div className="flex flex-wrap gap-2">
             <Link
@@ -70,7 +70,7 @@ export default function OrdersPage() {
       />
 
       <Notice kind="info">
-        變更訂單狀態後，首頁 KPI、庫存、應收會同步。目前身分：
+        列表顯示交期與狀態；可於此調整狀態。目前身分：
         {currentUser.User_Name}。庫存不足時無法出貨。
       </Notice>
 
@@ -144,12 +144,17 @@ export default function OrdersPage() {
             </Notice>
           ) : (
             <>
-              <div className="table-shell table-dense">
+              <div
+                className="table-shell table-dense"
+                data-week8="orders-list"
+                data-week8-marker="week8-delivery-20261118"
+              >
                 <table>
                   <thead>
                     <tr>
                       <th>Order_ID</th>
-                      <th>日期</th>
+                      <th>訂單日</th>
+                      <th>交期</th>
                       <th>客戶</th>
                       <th>來源報價</th>
                       <th>狀態</th>
@@ -169,6 +174,9 @@ export default function OrdersPage() {
                           </Link>
                         </td>
                         <td>{o.Order_Date}</td>
+                        <td className="tabular-nums font-medium text-[var(--brand-deep)]">
+                          {o.Delivery_Date}
+                        </td>
                         <td>
                           {o.Customer_ID} {customerName(o.Customer_ID)}
                         </td>

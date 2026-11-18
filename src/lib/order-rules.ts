@@ -1,4 +1,4 @@
-import { todayLocalDate } from "./quotation-rules";
+import { addDays, todayLocalDate } from "./quotation-rules";
 import type {
   Customer,
   Product,
@@ -14,6 +14,9 @@ export type OrderActionResult = {
   order?: SalesOrder;
   details?: SalesOrderDetail[];
 };
+
+/** 預設交期＝訂單日 + 7 天（教學慣例） */
+export const DEFAULT_DELIVERY_LEAD_DAYS = 7;
 
 export function nextOrderId(orders: SalesOrder[]): string {
   let max = 0;
@@ -46,9 +49,42 @@ export function orderAlreadyFromQuote(
   return orders.find((o) => o.Quote_ID === quoteId);
 }
 
+export function defaultDeliveryDate(
+  orderDate: string = todayLocalDate(),
+  leadDays: number = DEFAULT_DELIVERY_LEAD_DAYS,
+): string {
+  return addDays(orderDate, leadDays);
+}
+
+/** 補齊舊資料缺交期；不覆寫既有 Delivery_Date */
+export function ensureOrderDeliveryDate(order: SalesOrder): SalesOrder {
+  if (order.Delivery_Date && /^\d{4}-\d{2}-\d{2}$/.test(order.Delivery_Date)) {
+    return order;
+  }
+  return {
+    ...order,
+    Delivery_Date: defaultDeliveryDate(order.Order_Date || todayLocalDate()),
+  };
+}
+
+export function validateDeliveryDate(
+  deliveryDate: string,
+  orderDate: string,
+): { ok: boolean; message?: string } {
+  const trimmed = deliveryDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return { ok: false, message: "交期格式須為 YYYY-MM-DD。" };
+  }
+  if (trimmed < orderDate) {
+    return { ok: false, message: "交期不可早於訂單日期。" };
+  }
+  return { ok: true };
+}
+
 /**
  * Accepted 報價 → Sales_Order＋明細。
- * 複製客戶／商品／Qty／Unit_Price 快照；停用客戶或明細商品不可轉。
+ * 複製客戶／商品名／Qty／Unit_Price／總額快照；寫入交期；
+ * 停用客戶或明細商品不可轉；同一報價不可重複轉。
  */
 export function convertQuoteToOrder(
   quote: Quotation,
@@ -57,6 +93,7 @@ export function convertQuoteToOrder(
   products: Product[],
   orders: SalesOrder[],
   orderDetails: SalesOrderDetail[],
+  options?: { deliveryDate?: string },
 ): OrderActionResult {
   if (quote.Status !== "Accepted") {
     return {
@@ -111,6 +148,14 @@ export function convertQuoteToOrder(
     };
   }
 
+  const orderDate = todayLocalDate();
+  const deliveryDate =
+    options?.deliveryDate?.trim() || defaultDeliveryDate(orderDate);
+  const deliveryCheck = validateDeliveryDate(deliveryDate, orderDate);
+  if (!deliveryCheck.ok) {
+    return { ok: false, message: deliveryCheck.message };
+  }
+
   const orderId = nextOrderId(orders);
   let detailSeq = 0;
   const maxExisting = orderDetails.reduce((m, d) => {
@@ -124,10 +169,13 @@ export function convertQuoteToOrder(
     detailSeq += 1;
     const detailId = `D${String(maxExisting + detailSeq).padStart(3, "0")}`;
     const subtotal = line.Qty * line.Unit_Price;
+    const product = products.find((x) => x.Product_ID === line.Product_ID);
     return {
       Detail_ID: detailId,
       Order_ID: orderId,
       Product_ID: line.Product_ID,
+      Product_Name_Snapshot:
+        line.Product_Name_Snapshot || product?.Product_Name || line.Product_ID,
       Qty: line.Qty,
       Unit_Price: line.Unit_Price,
       Discount: 1,
@@ -137,17 +185,18 @@ export function convertQuoteToOrder(
 
   const order: SalesOrder = {
     Order_ID: orderId,
-    Order_Date: todayLocalDate(),
+    Order_Date: orderDate,
     Customer_ID: quote.Customer_ID,
     Order_Status: "待確認",
     Total_Amount: quote.Total,
+    Delivery_Date: deliveryDate,
     Quote_ID: quote.Quote_ID,
     Stock_Deducted: false,
   };
 
   return {
     ok: true,
-    message: `已由 ${quote.Quote_ID} 建立訂單 ${orderId}（待確認）。`,
+    message: `已由 ${quote.Quote_ID} 建立訂單 ${orderId}（待確認；交期 ${deliveryDate}）。`,
     order,
     details,
   };
@@ -158,4 +207,12 @@ export const ORDER_STATUSES = [
   "處理中",
   "已出貨",
   "已取消",
+] as const;
+
+/** 第 8 週狀態機說明（UI／驗收用） */
+export const ORDER_STATUS_RULES_ZH = [
+  "待確認：轉單預設；可改為處理中、已出貨或已取消",
+  "處理中：備貨中；可出貨或取消",
+  "已出貨：履約完成（會觸發第 10／12 週扣庫與應收）；可改回其他狀態並還原",
+  "已取消：終止履約；不可直接標已出貨（須先改回待確認／處理中）",
 ] as const;

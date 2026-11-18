@@ -380,9 +380,24 @@ export const initialQuotations: Quotation[] = [
     Subtotal: 4400,
     Tax_Amount: 210,
     Total: 4410,
-    Notes: "極光餐飲已接受",
+    Notes: "極光餐飲已接受 · 第 8 週轉單示範（尚未轉訂單）",
     Created_At: "2026-10-10T02:00:00.000Z",
     Updated_At: "2026-10-12T08:00:00.000Z",
+  },
+  {
+    Quote_ID: "Q005",
+    Customer_ID: "C002",
+    Quote_Date: "2026-10-28",
+    Valid_Until: "2026-11-11",
+    Status: "Accepted",
+    Discount_Amount: 0,
+    Tax_Rate: 0.05,
+    Subtotal: 3600,
+    Tax_Amount: 180,
+    Total: 3780,
+    Notes: "第 8 週備用 Accepted 報價（可轉單示範交期）",
+    Created_At: "2026-10-28T02:00:00.000Z",
+    Updated_At: "2026-10-29T04:00:00.000Z",
   },
 ];
 
@@ -462,10 +477,20 @@ export const initialQuotationDetails: QuotationDetail[] = [
     Unit_Price: 380,
     Line_Amount: 1140,
   },
+  // Q005 Accepted 備用：P001×2@1800 = 3600；稅 180；總 3780
+  {
+    Quote_ID: "Q005",
+    Line_No: 1,
+    Product_ID: "P001",
+    Product_Name_Snapshot: "挪威淺焙精品豆",
+    Qty: 2,
+    Unit_Price: 1800,
+    Line_Amount: 3600,
+  },
 ];
 
 
-/** 可變動的訂單狀態（供教學測試）；金額仍由明細推導核對 */
+/** 可變動的訂單狀態（供教學測試）；金額仍由明細推導核對；含第 8 週交期 */
 export const initialOrders: SalesOrder[] = [
   {
     Order_ID: "SO001",
@@ -473,6 +498,7 @@ export const initialOrders: SalesOrder[] = [
     Customer_ID: "C001",
     Order_Status: "處理中",
     Total_Amount: 4200,
+    Delivery_Date: "2026-10-20",
   },
   {
     Order_ID: "SO002",
@@ -480,6 +506,7 @@ export const initialOrders: SalesOrder[] = [
     Customer_ID: "C002",
     Order_Status: "待確認",
     Total_Amount: 1800,
+    Delivery_Date: "2026-10-22",
   },
   {
     Order_ID: "SO003",
@@ -487,6 +514,7 @@ export const initialOrders: SalesOrder[] = [
     Customer_ID: "C003",
     Order_Status: "已出貨",
     Total_Amount: 3000,
+    Delivery_Date: "2026-10-18",
     Stock_Deducted: true,
   },
   {
@@ -495,6 +523,7 @@ export const initialOrders: SalesOrder[] = [
     Customer_ID: "C004",
     Order_Status: "已取消",
     Total_Amount: 2400,
+    Delivery_Date: "2026-10-21",
   },
   {
     Order_ID: "SO005",
@@ -502,6 +531,7 @@ export const initialOrders: SalesOrder[] = [
     Customer_ID: "C005",
     Order_Status: "處理中",
     Total_Amount: 1600,
+    Delivery_Date: "2026-10-19",
   },
 ];
 
@@ -510,6 +540,7 @@ export const orderDetails: SalesOrderDetail[] = [
     Detail_ID: "D001",
     Order_ID: "SO001",
     Product_ID: "P001",
+    Product_Name_Snapshot: "挪威淺焙精品豆",
     Qty: 2,
     Unit_Price: 1800,
     Discount: 1,
@@ -519,6 +550,7 @@ export const orderDetails: SalesOrderDetail[] = [
     Detail_ID: "D002",
     Order_ID: "SO001",
     Product_ID: "P002",
+    Product_Name_Snapshot: "日曬耶加雪菲",
     Qty: 1,
     Unit_Price: 600,
     Discount: 1,
@@ -528,6 +560,7 @@ export const orderDetails: SalesOrderDetail[] = [
     Detail_ID: "D003",
     Order_ID: "SO002",
     Product_ID: "P001",
+    Product_Name_Snapshot: "挪威淺焙精品豆",
     Qty: 1,
     Unit_Price: 1800,
     Discount: 1,
@@ -537,6 +570,7 @@ export const orderDetails: SalesOrderDetail[] = [
     Detail_ID: "D004",
     Order_ID: "SO003",
     Product_ID: "P001",
+    Product_Name_Snapshot: "挪威淺焙精品豆",
     Qty: 1,
     Unit_Price: 1800,
     Discount: 1,
@@ -546,6 +580,7 @@ export const orderDetails: SalesOrderDetail[] = [
     Detail_ID: "D005",
     Order_ID: "SO003",
     Product_ID: "P002",
+    Product_Name_Snapshot: "日曬耶加雪菲",
     Qty: 2,
     Unit_Price: 600,
     Discount: 1,
@@ -555,6 +590,7 @@ export const orderDetails: SalesOrderDetail[] = [
     Detail_ID: "D006",
     Order_ID: "SO004",
     Product_ID: "P003",
+    Product_Name_Snapshot: "冷萃濃縮液",
     Qty: 3,
     Unit_Price: 800,
     Discount: 1,
@@ -564,6 +600,7 @@ export const orderDetails: SalesOrderDetail[] = [
     Detail_ID: "D007",
     Order_ID: "SO005",
     Product_ID: "P003",
+    Product_Name_Snapshot: "冷萃濃縮液",
     Qty: 2,
     Unit_Price: 800,
     Discount: 1,

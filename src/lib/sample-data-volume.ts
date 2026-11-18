@@ -294,6 +294,7 @@ export function buildVolumeDocuments(input: {
       Customer_ID: cust.Customer_ID,
       Order_Status: status,
       Total_Amount: total,
+      Delivery_Date: dateOffset(orderDate, 5 + (i % 5)),
       Stock_Deducted: shipped,
     });
 
@@ -302,6 +303,7 @@ export function buildVolumeDocuments(input: {
         Detail_ID: `D${pad(detailSeq++)}`,
         Order_ID: id,
         Product_ID: p1.Product_ID,
+        Product_Name_Snapshot: p1.Product_Name,
         Qty: qty1,
         Unit_Price: p1.List_Price,
         Discount: 1,
@@ -311,6 +313,7 @@ export function buildVolumeDocuments(input: {
         Detail_ID: `D${pad(detailSeq++)}`,
         Order_ID: id,
         Product_ID: p2.Product_ID,
+        Product_Name_Snapshot: p2.Product_Name,
         Qty: qty2,
         Unit_Price: p2.List_Price,
         Discount: 1,

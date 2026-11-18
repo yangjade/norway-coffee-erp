@@ -12,6 +12,7 @@ import { useToast } from "@/components/ToastProvider";
 import { buildActivityFeed } from "@/lib/activity";
 import { useApp } from "@/lib/app-context";
 import { formatTwd } from "@/lib/format";
+import { ORDER_STATUS_RULES_ZH } from "@/lib/order-rules";
 import type { OrderStatus } from "@/lib/types";
 
 const STATUSES: OrderStatus[] = ["待確認", "處理中", "已出貨", "已取消"];
@@ -27,11 +28,13 @@ export default function OrderDetailClient() {
     quotations,
     stockMoves,
     setOrderStatus,
+    updateOrderDeliveryDate,
     customerName,
     productName,
   } = useApp();
   const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
+  const [deliveryDraft, setDeliveryDraft] = useState<string | null>(null);
 
   const order = orders.find((o) => o.Order_ID === orderId);
   const details = orderDetails.filter((d) => d.Order_ID === orderId);
@@ -108,22 +111,47 @@ export default function OrderDetailClient() {
     });
   }
 
+  function saveDeliveryDate() {
+    const next = (deliveryDraft ?? order!.Delivery_Date).trim();
+    setError(null);
+    const result = updateOrderDeliveryDate(order!.Order_ID, next);
+    if (!result.ok) {
+      setError(result.message ?? "交期更新失敗");
+      pushToast({
+        tone: "error",
+        title: "無法更新交期",
+        message: result.message ?? "失敗",
+      });
+      return;
+    }
+    setDeliveryDraft(null);
+    pushToast({ tone: "success", message: result.message ?? "交期已更新" });
+  }
+
+  const deliveryEditable =
+    order.Order_Status === "待確認" || order.Order_Status === "處理中";
+  const deliveryValue = deliveryDraft ?? order.Delivery_Date;
+
   return (
     <PrintSheet
       docTitle="銷售訂單"
       docId={order.Order_ID}
       meta={
         <>
-          {order.Order_Date} · {order.Customer_ID}{" "}
+          {order.Order_Date} · 交期 {order.Delivery_Date} · {order.Customer_ID}{" "}
           {customerName(order.Customer_ID)}
         </>
       }
     >
-      <div className="space-y-5 animate-rise">
+      <div
+        className="space-y-5 animate-rise"
+        data-week8="order-detail"
+        data-week8-marker="week8-delivery-20261118"
+      >
         <div className="no-print">
           <PageHeader
             title={`訂單 ${order.Order_ID}`}
-            description={`表頭 1 筆 · 明細 ${details.length} 筆 · 金額以表頭為準`}
+            description={`表頭 1 筆 · 明細 ${details.length} 筆 · 交期與狀態可維護（第 8 週）`}
             actions={
               <PrintActions
                 extra={
@@ -138,7 +166,7 @@ export default function OrderDetailClient() {
 
         {error && (
           <div className="no-print">
-            <Notice kind="error" title="無法更新狀態">
+            <Notice kind="error" title="無法更新">
               {error}
             </Notice>
           </div>
@@ -146,7 +174,17 @@ export default function OrderDetailClient() {
 
         <div className="panel grid gap-2 px-4 py-3.5 text-sm sm:grid-cols-2">
           <p>
-            <span className="text-[var(--muted)]">日期</span> {order.Order_Date}
+            <span className="text-[var(--muted)]">訂單日期</span>{" "}
+            {order.Order_Date}
+          </p>
+          <p className="flex flex-wrap items-center gap-2">
+            <span className="text-[var(--muted)]">交期 Delivery_Date</span>{" "}
+            <span
+              className="font-semibold tabular-nums text-[var(--brand-deep)]"
+              data-field="Delivery_Date"
+            >
+              {order.Delivery_Date}
+            </span>
           </p>
           <p>
             <span className="text-[var(--muted)]">客戶</span>{" "}
@@ -158,11 +196,11 @@ export default function OrderDetailClient() {
             </Link>
           </p>
           <p className="flex flex-wrap items-center gap-2">
-            <span className="text-[var(--muted)]">狀態</span>
+            <span className="text-[var(--muted)]">訂單狀態</span>
             <StatusBadge status={order.Order_Status} />
           </p>
           <p>
-            <span className="text-[var(--muted)]">表頭金額</span>{" "}
+            <span className="text-[var(--muted)]">表頭金額（快照）</span>{" "}
             <span className="font-semibold tabular-nums">
               NT$ {formatTwd(order.Total_Amount)}
             </span>
@@ -199,6 +237,39 @@ export default function OrderDetailClient() {
           </p>
         </div>
 
+        {deliveryEditable && (
+          <div className="no-print panel flex flex-wrap items-end gap-3 px-4 py-3.5">
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs text-[var(--muted)]">
+                維護交期（不可早於訂單日）
+              </span>
+              <input
+                type="date"
+                className="field"
+                value={deliveryValue}
+                aria-label="交期 Delivery_Date"
+                onChange={(e) => setDeliveryDraft(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-primary text-sm"
+              onClick={saveDeliveryDate}
+            >
+              儲存交期
+            </button>
+          </div>
+        )}
+
+        <div className="no-print panel px-4 py-3 text-xs leading-relaxed text-[var(--muted)]">
+          <p className="font-medium text-[var(--brand-deep)]">狀態機規則</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {ORDER_STATUS_RULES_ZH.map((rule) => (
+              <li key={rule}>{rule}</li>
+            ))}
+          </ul>
+        </div>
+
         {order.Order_Status === "已出貨" && (
           <div className="no-print">
             <Notice kind="info">
@@ -215,7 +286,7 @@ export default function OrderDetailClient() {
               <thead>
                 <tr>
                   <th>Detail_ID</th>
-                  <th>商品</th>
+                  <th>商品（快照）</th>
                   <th>Qty</th>
                   <th>Unit_Price</th>
                   <th>Discount</th>
@@ -231,7 +302,8 @@ export default function OrderDetailClient() {
                         href={`/products/${d.Product_ID}/`}
                         className="text-[var(--brand)] underline-offset-2 hover:underline"
                       >
-                        {d.Product_ID} {productName(d.Product_ID)}
+                        {d.Product_ID}{" "}
+                        {d.Product_Name_Snapshot || productName(d.Product_ID)}
                       </Link>
                     </td>
                     <td className="tabular-nums">{d.Qty}</td>
@@ -247,7 +319,7 @@ export default function OrderDetailClient() {
                     colSpan={5}
                     className="text-right text-xs text-[var(--muted)]"
                   >
-                    明細合計（應等於表頭；轉單可含稅總額）
+                    明細合計（單價／數量快照；表頭總額含稅）
                   </td>
                   <td className="font-semibold tabular-nums">
                     NT$ {formatTwd(detailSum)}

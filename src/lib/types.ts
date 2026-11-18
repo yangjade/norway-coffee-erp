@@ -67,6 +67,11 @@ export interface SalesOrder {
   Customer_ID: string;
   Order_Status: OrderStatus;
   Total_Amount: number;
+  /**
+   * 交期（第 8 週 Delivery_Date／Due_Date）
+   * 轉單時寫入；可於訂單詳情維護。
+   */
+  Delivery_Date: string;
   /** 來源報價（第 8 週轉單；樣本訂單可無） */
   Quote_ID?: string;
   /** 是否已因「已出貨」扣過庫存（避免重扣） */
@@ -77,6 +82,8 @@ export interface SalesOrderDetail {
   Detail_ID: string;
   Order_ID: string;
   Product_ID: string;
+  /** 轉單／下單當下品名快照（≠ 之後主檔改名） */
+  Product_Name_Snapshot?: string;
   Qty: number;
   Unit_Price: number;
   Discount: number;

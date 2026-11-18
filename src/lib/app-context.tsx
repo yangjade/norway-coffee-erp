@@ -22,7 +22,12 @@ import {
   restoreStockForUnship,
   type InventoryActionResult,
 } from "./inventory-rules";
-import { convertQuoteToOrder, type OrderActionResult } from "./order-rules";
+import {
+  convertQuoteToOrder,
+  ensureOrderDeliveryDate,
+  validateDeliveryDate,
+  type OrderActionResult,
+} from "./order-rules";
 import {
   baselineCustomers,
   customers as seedCustomers,
@@ -126,7 +131,14 @@ interface AppContextValue {
     orderId: string,
     status: OrderStatus,
   ) => { ok: boolean; message?: string };
-  convertAcceptedQuote: (quoteId: string) => OrderActionResult;
+  updateOrderDeliveryDate: (
+    orderId: string,
+    deliveryDate: string,
+  ) => { ok: boolean; message?: string };
+  convertAcceptedQuote: (
+    quoteId: string,
+    options?: { deliveryDate?: string },
+  ) => OrderActionResult;
   adjustInventory: (
     productId: string,
     delta: number,
@@ -289,12 +301,14 @@ function migrateFromLegacy(parsed: {
   const payments = Array.isArray(parsed.payments)
     ? (parsed.payments as Payment[]).map((p) => ({ ...p }))
     : seed.payments;
-  const orders = (parsed.orders as SalesOrder[]).map((o) => ({
-    ...o,
-    Stock_Deducted:
-      o.Stock_Deducted ??
-      (o.Order_Status === "已出貨" ? true : false),
-  }));
+  const orders = (parsed.orders as SalesOrder[]).map((o) =>
+    ensureOrderDeliveryDate({
+      ...o,
+      Stock_Deducted:
+        o.Stock_Deducted ??
+        (o.Order_Status === "已出貨" ? true : false),
+    }),
+  );
 
   return {
     version: STORAGE_VERSION,
@@ -543,12 +557,44 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [currentUser.Role],
   );
 
+  const updateOrderDeliveryDate = useCallback(
+    (orderId: string, deliveryDate: string) => {
+      const order = orders.find((o) => o.Order_ID === orderId);
+      if (!order) return { ok: false, message: "找不到該訂單。" };
+      if (order.Order_Status === "已出貨" || order.Order_Status === "已取消") {
+        return {
+          ok: false,
+          message: `「${order.Order_Status}」訂單不可再改交期。`,
+        };
+      }
+      const check = validateDeliveryDate(deliveryDate, order.Order_Date);
+      if (!check.ok) return { ok: false, message: check.message };
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.Order_ID === orderId
+            ? { ...o, Delivery_Date: deliveryDate.trim() }
+            : o,
+        ),
+      );
+      return { ok: true, message: `交期已更新為 ${deliveryDate.trim()}` };
+    },
+    [orders],
+  );
+
   const setOrderStatus = useCallback(
     (orderId: string, status: OrderStatus) => {
       const order = orders.find((o) => o.Order_ID === orderId);
       if (!order) return { ok: false, message: "找不到該訂單。" };
       if (order.Order_Status === status) {
         return { ok: true, message: "狀態未變更。" };
+      }
+
+      if (order.Order_Status === "已取消" && status === "已出貨") {
+        return {
+          ok: false,
+          message:
+            "已取消訂單不可直接標為已出貨；請先改回「待確認」或「處理中」。",
+        };
       }
 
       const leavingShipped = order.Order_Status === "已出貨" && status !== "已出貨";
@@ -624,7 +670,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const convertAcceptedQuote = useCallback(
-    (quoteId: string): OrderActionResult => {
+    (
+      quoteId: string,
+      options?: { deliveryDate?: string },
+    ): OrderActionResult => {
       const quote = quotations.find((q) => q.Quote_ID === quoteId);
       if (!quote) return { ok: false, message: "找不到該報價。" };
       const result = convertQuoteToOrder(
@@ -634,6 +683,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         products,
         orders,
         orderDetails,
+        options,
       );
       if (!result.ok || !result.order || !result.details) return result;
       setOrders((prev) => [...prev, result.order!]);
@@ -966,6 +1016,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     switchUser,
     setUserActive,
     setOrderStatus,
+    updateOrderDeliveryDate,
     convertAcceptedQuote,
     adjustInventory,
     recordArPayment,

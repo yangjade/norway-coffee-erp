@@ -37,7 +37,7 @@ const WEEK6_ACTIONS: {
   },
 ];
 
-const WEEK812_ACTIONS: {
+const WEEK8_ACTIONS: {
   key: string;
   label: string;
   hint: string;
@@ -45,10 +45,36 @@ const WEEK812_ACTIONS: {
 }[] = [
   {
     key: "goto-q2o",
-    label: "報價轉訂單",
-    hint: "Accepted Q003 → Sales_Order",
+    label: "報價轉訂單（交期）",
+    hint: "Accepted Q003／Q005 → 寫入 Delivery_Date",
     tone: "brand",
   },
+  {
+    key: "goto-orders-w8",
+    label: "訂單交期／狀態",
+    hint: "列表見交期；詳情可改狀態機",
+    tone: "accent",
+  },
+  {
+    key: "w8-guard-hint",
+    label: "轉單守衛說明",
+    hint: "停用客戶／商品拒轉；不可雙轉",
+    tone: "danger",
+  },
+  {
+    key: "goto-acceptance-w8",
+    label: "第 8 週驗收路徑",
+    hint: "Accepted→轉單→交期→狀態（不扣庫）",
+    tone: "neutral",
+  },
+];
+
+const WEEK1012_ACTIONS: {
+  key: string;
+  label: string;
+  hint: string;
+  tone: "brand" | "accent" | "danger" | "neutral";
+}[] = [
   {
     key: "goto-shipping",
     label: "打開出貨",
@@ -232,7 +258,24 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
         router.push("/quotations/");
         break;
       case "goto-q2o":
-        flash(key, "導向報價轉訂單（第 8 週）");
+        flash(key, "導向報價轉訂單（第 8 週：交期 Delivery_Date）");
+        router.push("/quote-to-order/");
+        break;
+      case "goto-orders-w8":
+        flash(key, "導向訂單列表（交期欄＋狀態機）");
+        router.push("/orders/");
+        break;
+      case "w8-guard-hint":
+        flash(
+          key,
+          "守衛：僅 Accepted；停用客戶／明細停用商品拒轉；同一 Quote_ID 不可重複轉單。詳見／quote-to-order／。",
+        );
+        break;
+      case "goto-acceptance-w8":
+        flash(
+          key,
+          "第 8 週路徑：驗收區 → 報價轉訂單（選交期）→ 訂單詳情看交期／改狀態。本週不扣庫、不建應收。",
+        );
         router.push("/quote-to-order/");
         break;
       case "goto-shipping":
@@ -405,11 +448,15 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
 
           <div className="border-t border-[var(--border)] px-4 pb-1 pt-3 sm:px-5">
             <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">
-              第 8／10／12 週 · 轉單／庫存／應收
+              第 8 週 · 報價轉訂單／交期／訂單狀態
             </p>
           </div>
-          <div className="grid gap-2.5 p-4 pt-2 sm:grid-cols-2 sm:p-5 sm:pt-2 lg:grid-cols-3">
-            {WEEK812_ACTIONS.map((a) => (
+          <div
+            className="grid gap-2.5 p-4 pt-2 sm:grid-cols-2 sm:p-5 sm:pt-2 lg:grid-cols-4"
+            data-week8="acceptance"
+            data-week8-marker="week8-delivery-20261118"
+          >
+            {WEEK8_ACTIONS.map((a) => (
               <button
                 key={a.key}
                 type="button"
@@ -426,7 +473,42 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
                 }`}
               >
                 <span className="text-[11px] tracking-[0.08em] text-[var(--muted)]">
-                  W8–12
+                  Week8
+                </span>
+                <span className="mt-1 block text-sm font-semibold text-[var(--brand-deep)]">
+                  {a.label}
+                </span>
+                <span className="mt-1 block text-[11px] leading-relaxed text-[var(--muted)]">
+                  {a.hint}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="border-t border-[var(--border)] px-4 pb-1 pt-3 sm:px-5">
+            <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">
+              第 10／11／12 週 · 庫存／出貨／應收
+            </p>
+          </div>
+          <div className="grid gap-2.5 p-4 pt-2 sm:grid-cols-2 sm:p-5 sm:pt-2 lg:grid-cols-3">
+            {WEEK1012_ACTIONS.map((a) => (
+              <button
+                key={a.key}
+                type="button"
+                data-busy={busy === a.key ? "true" : undefined}
+                onClick={() => onAction(a.key)}
+                className={`btn-sim ${
+                  a.tone === "brand"
+                    ? "border-[var(--brand)]/20 bg-[var(--brand-soft)]/40 hover:border-[var(--brand)]/45"
+                    : a.tone === "accent"
+                      ? "border-[var(--accent)]/30 bg-[var(--accent-soft)]/45 hover:border-[var(--accent)]"
+                      : a.tone === "danger"
+                        ? "border-[var(--danger-border)] bg-[var(--danger-bg)] hover:border-[var(--danger)]/45"
+                        : "border-[var(--linen)]/50 hover:border-[var(--brand)]/35"
+                }`}
+              >
+                <span className="text-[11px] tracking-[0.08em] text-[var(--muted)]">
+                  W10–12
                 </span>
                 <span className="mt-1 block text-sm font-semibold text-[var(--brand-deep)]">
                   {a.label}
@@ -465,7 +547,8 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
                   ；統計基準日 {BASE_DATE}
                 </li>
                 <li>
-                  第 8／10／12 週：報價轉訂單、On_Hand 扣庫、應收收款（非營所稅）
+                  第 8 週：Accepted→轉單＋Delivery_Date＋訂單狀態；第 10／12
+                  週才扣庫／應收
                 </li>
               </ul>
             </div>
@@ -530,7 +613,7 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
               教學資料存於本機 localStorage（norway-coffee-erp-demo-v4）。
             </p>
             <p className="mt-1">
-              已建置：第 7 週商品／報價（搜尋／狀態／列印）· 第 8 週報價轉訂單 · 第
+              已建置：第 7 週商品／報價 · 第 8 週報價轉訂單／交期／訂單狀態 · 第
               10 週庫存 · 第 11 週出貨揀貨 · 第 12 週應收。不做採購／生產／營所稅。
             </p>
           </div>
