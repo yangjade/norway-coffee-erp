@@ -1352,6 +1352,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotations,
       quotationDetails,
       stockMoves: stockMovesRef.current,
+      stockReservations: stockReservationsRef.current,
       receivables: receivablesRef.current,
       payments: paymentsRef.current,
       orderAudits: orderAuditsRef.current,
@@ -1364,13 +1365,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (raw: string) => {
       try {
         const parsed = JSON.parse(raw) as { version?: number };
+        // v7 直接套用；舊版走 migrate
+        if (parsed?.version === STORAGE_VERSION) {
+          const full = parsed as PersistedState;
+          const rest = { ...full };
+          delete (rest as { version?: number }).version;
+          if (!Array.isArray(rest.stockReservations)) {
+            rest.stockReservations = [];
+          }
+          applySeedLike(rest as Omit<PersistedState, "version">);
+          return {
+            ok: true,
+            message: `已匯入 ${full.orders.length} 張訂單、${full.quotations.length} 張報價、${(full.stockReservations ?? []).length} 筆保留。`,
+          };
+        }
         const migrated = migrateFromLegacy(
           parsed as Parameters<typeof migrateFromLegacy>[0],
         );
         if (!migrated) {
           return {
             ok: false,
-            message: "無法匯入：請使用本系統匯出的 v6 JSON。",
+            message: "無法匯入：請使用本系統匯出的 v7 JSON。",
           };
         }
         const rest = { ...migrated };
