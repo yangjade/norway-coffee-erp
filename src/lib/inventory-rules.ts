@@ -142,7 +142,8 @@ export function deductStockForShip(
     message: `已扣庫存 ${lines.length} 項商品。`,
     products: nextProducts,
     moves: [...moves, ...newMoves],
-    order: { ...order, Stock_Deducted: true, Order_Status: "已出貨" },
+    // 第 8 週：確認不扣庫；出貨才扣庫，訂單狀態維持 Confirmed
+    order: { ...order, Stock_Deducted: true },
   };
 }
 

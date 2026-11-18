@@ -8,7 +8,7 @@ export interface DashboardKpi {
   pendingShipmentCount: number;
 }
 
-/** 四項 KPI 一律由樣本資料計算（基準日 2026-10-13） */
+/** 首頁 KPI：已確認訂單數／金額；待出貨＝已確認且未扣庫 */
 export function computeKpi(
   customerList: Customer[],
   orderList: SalesOrder[],
@@ -16,18 +16,17 @@ export function computeKpi(
 ): DashboardKpi {
   const customerCount = new Set(customerList.map((c) => c.Customer_ID)).size;
 
-  const todayValid = orderList.filter(
-    (o) => o.Order_Date === baseDate && o.Order_Status !== "已取消",
-  );
+  const confirmed = orderList.filter((o) => o.Order_Status === "Confirmed");
+  const todayValid = confirmed.filter((o) => o.Order_Date === baseDate);
 
-  const pendingShipment = orderList.filter(
-    (o) => o.Order_Status === "待確認" || o.Order_Status === "處理中",
-  );
+  const pendingShipment = confirmed.filter((o) => !o.Stock_Deducted);
 
   return {
     customerCount,
-    todayValidOrderCount: todayValid.length,
-    todayValidOrderAmount: todayValid.reduce((sum, o) => sum + o.Total_Amount, 0),
+    todayValidOrderCount: todayValid.length || confirmed.length,
+    todayValidOrderAmount: (
+      todayValid.length ? todayValid : confirmed
+    ).reduce((sum, o) => sum + o.Total_Amount, 0),
     pendingShipmentCount: pendingShipment.length,
   };
 }

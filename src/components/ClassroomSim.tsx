@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
+import { Week8Acceptance } from "@/components/Week8Acceptance";
 import { useApp } from "@/lib/app-context";
 import { BASE_DATE } from "@/lib/sample-data";
 
@@ -33,38 +34,6 @@ const WEEK6_ACTIONS: {
     key: "mapping",
     label: "欄位對照與版本說明",
     hint: "客戶／商品／報價欄位對照",
-    tone: "neutral",
-  },
-];
-
-const WEEK8_ACTIONS: {
-  key: string;
-  label: string;
-  hint: string;
-  tone: "brand" | "accent" | "danger" | "neutral";
-}[] = [
-  {
-    key: "goto-q2o",
-    label: "報價轉訂單（交期）",
-    hint: "Accepted Q003／Q005 → 寫入 Delivery_Date",
-    tone: "brand",
-  },
-  {
-    key: "goto-orders-w8",
-    label: "訂單交期／狀態",
-    hint: "列表見交期；詳情可改狀態機",
-    tone: "accent",
-  },
-  {
-    key: "w8-guard-hint",
-    label: "轉單守衛說明",
-    hint: "停用客戶／商品拒轉；不可雙轉",
-    tone: "danger",
-  },
-  {
-    key: "goto-acceptance-w8",
-    label: "第 8 週驗收路徑",
-    hint: "Accepted→轉單→交期→狀態（不扣庫）",
     tone: "neutral",
   },
 ];
@@ -201,8 +170,8 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
         break;
       case "cancel":
         setSimLoadError(false);
-        setOrderStatus("SO002", "已取消");
-        flash(key, "已取消 SO002 → 請回首頁看 KPI（應為 2 筆／7,200 元／待出貨 2）");
+        setOrderStatus("SO002", "Cancelled");
+        flash(key, "已取消 SO002（第 8 週 Cancelled）");
         break;
       case "clear":
         setSimLoadError(false);
@@ -446,44 +415,7 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
             ))}
           </div>
 
-          <div className="border-t border-[var(--border)] px-4 pb-1 pt-3 sm:px-5">
-            <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">
-              第 8 週 · 報價轉訂單／交期／訂單狀態
-            </p>
-          </div>
-          <div
-            className="grid gap-2.5 p-4 pt-2 sm:grid-cols-2 sm:p-5 sm:pt-2 lg:grid-cols-4"
-            data-week8="acceptance"
-            data-week8-marker="week8-delivery-20261118"
-          >
-            {WEEK8_ACTIONS.map((a) => (
-              <button
-                key={a.key}
-                type="button"
-                data-busy={busy === a.key ? "true" : undefined}
-                onClick={() => onAction(a.key)}
-                className={`btn-sim ${
-                  a.tone === "brand"
-                    ? "border-[var(--brand)]/20 bg-[var(--brand-soft)]/40 hover:border-[var(--brand)]/45"
-                    : a.tone === "accent"
-                      ? "border-[var(--accent)]/30 bg-[var(--accent-soft)]/45 hover:border-[var(--accent)]"
-                      : a.tone === "danger"
-                        ? "border-[var(--danger-border)] bg-[var(--danger-bg)] hover:border-[var(--danger)]/45"
-                        : "border-[var(--border)] bg-[var(--linen)]/50 hover:border-[var(--brand)]/35"
-                }`}
-              >
-                <span className="text-[11px] tracking-[0.08em] text-[var(--muted)]">
-                  Week8
-                </span>
-                <span className="mt-1 block text-sm font-semibold text-[var(--brand-deep)]">
-                  {a.label}
-                </span>
-                <span className="mt-1 block text-[11px] leading-relaxed text-[var(--muted)]">
-                  {a.hint}
-                </span>
-              </button>
-            ))}
-          </div>
+          <Week8Acceptance />
 
           <div className="border-t border-[var(--border)] px-4 pb-1 pt-3 sm:px-5">
             <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">

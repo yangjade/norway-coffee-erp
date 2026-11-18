@@ -57,10 +57,9 @@ export function buildActivityFeed(input: {
   for (const o of input.orders) {
     items.push({
       id: `order-${o.Order_ID}`,
-      kind: o.Order_Status === "已出貨" ? "ship" : "order",
+      kind: o.Stock_Deducted ? "ship" : "order",
       at: o.Order_Date,
-      title:
-        o.Order_Status === "已出貨"
+      title: o.Stock_Deducted
           ? `出貨完成 ${o.Order_ID}`
           : `訂單 ${o.Order_ID} · ${o.Order_Status}`,
       detail: `${input.customerName(o.Customer_ID)} · NT$ ${o.Total_Amount.toLocaleString("zh-TW")}`,

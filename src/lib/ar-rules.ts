@@ -71,10 +71,10 @@ export function ensureReceivableForOrder(
       receivables,
     };
   }
-  if (order.Order_Status !== "已出貨") {
+  if (!order.Stock_Deducted) {
     return {
       ok: false,
-      message: "僅「已出貨」訂單可建立應收。",
+      message: "僅已出貨（已扣庫）訂單可建立應收；確認訂單不建應收。",
     };
   }
   const ar: Receivable = {

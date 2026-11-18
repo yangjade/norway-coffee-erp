@@ -8,15 +8,15 @@ export default function AcceptancePage() {
     <div
       className="space-y-6 animate-rise"
       data-prod-feel="acceptance-module"
-      data-week8-marker="week8-delivery-20261118"
+      data-week8-marker="week8-official-20261118"
     >
       <PageHeader
         title="驗收區"
-        description="課堂模擬與驗收工具集中於此。含第 8 週：報價轉訂單、交期、訂單狀態路徑。"
+        description="第 8 週正式：Draft／Confirmed／Cancelled、雙交期、驗收 01–12。"
       />
       <Notice kind="info">
-        第 8 週驗收：Accepted（Q003／Q005）→ 報價轉訂單（填交期）→ 訂單詳情看
-        Delivery_Date／改狀態。本週不要求扣庫或應收。重設樣本會還原完整示範資料量。
+        請按「一鍵跑 01–12」。案例 QT-20261118-001 總額 7,560；確認不扣庫。本機
+        storage v6（重設樣本）。
       </Notice>
       <ClassroomSim embedded />
     </div>

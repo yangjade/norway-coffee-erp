@@ -1,6 +1,7 @@
 export type Role = "Admin" | "Staff";
 
-export type OrderStatus = "待確認" | "處理中" | "已出貨" | "已取消";
+/** 第 8 週訂單狀態（講義）：Draft → Confirmed → Cancelled */
+export type OrderStatus = "Draft" | "Confirmed" | "Cancelled";
 
 /** 客戶分類（本週枚舉） */
 export type CustomerType = "零售" | "批發" | "企業";
@@ -66,28 +67,62 @@ export interface SalesOrder {
   Order_Date: string;
   Customer_ID: string;
   Order_Status: OrderStatus;
+  /** 來源報價（第 8 週轉單） */
+  Quote_ID?: string;
+  /** 客戶期望交貨日 */
+  Requested_Date: string;
+  /** 公司承諾交貨日 */
+  Promised_Date: string;
+  /** 承諾晚於期望時之改期同意 */
+  Delivery_Agreed: boolean;
+  Delivery_Agree_Note?: string;
+  Ship_To_Name?: string;
+  Ship_To_Address?: string;
+  Payment_Terms_Snapshot?: string;
+  Notes?: string;
+  Subtotal: number;
+  Tax_Rate: number;
+  Tax_Amount: number;
   Total_Amount: number;
   /**
-   * 交期（第 8 週 Delivery_Date／Due_Date）
-   * 轉單時寫入；可於訂單詳情維護。
+   * 相容舊欄位：單一日交期（讀取時可映射到 Promised_Date）
+   * @deprecated 請用 Requested_Date / Promised_Date
    */
-  Delivery_Date: string;
-  /** 來源報價（第 8 週轉單；樣本訂單可無） */
-  Quote_ID?: string;
-  /** 是否已因「已出貨」扣過庫存（避免重扣） */
+  Delivery_Date?: string;
+  /** 第 10／11 週：出貨才扣庫（確認訂單不扣） */
   Stock_Deducted?: boolean;
+  Cancel_Reason?: string;
+  Reopen_Reason?: string;
 }
 
 export interface SalesOrderDetail {
   Detail_ID: string;
   Order_ID: string;
   Product_ID: string;
-  /** 轉單／下單當下品名快照（≠ 之後主檔改名） */
-  Product_Name_Snapshot?: string;
+  Product_Name_Snapshot: string;
+  Unit_Snapshot: string;
   Qty: number;
+  /** 成交單價快照（鎖定） */
   Unit_Price: number;
-  Discount: number;
-  Subtotal: number;
+  /** 折扣率 0–100 */
+  Discount_Rate: number;
+  /** 折後未稅額（整數） */
+  Line_Amount: number;
+  /** @deprecated 舊乘數折扣；遷移用 */
+  Discount?: number;
+  Subtotal?: number;
+}
+
+export interface OrderAuditEntry {
+  Audit_ID: string;
+  Order_ID: string;
+  At: string;
+  User_ID: string;
+  User_Name: string;
+  Action: string;
+  Reason?: string;
+  Before?: string;
+  After?: string;
 }
 
 export interface Quotation {
@@ -114,7 +149,10 @@ export interface QuotationDetail {
   Qty: number;
   /** 報價當時單價快照（≠ 主檔 List_Price） */
   Unit_Price: number;
+  /** 折扣率 0–100（第 8 週轉單帶入） */
+  Discount_Rate?: number;
   Line_Amount: number;
+  Unit_Snapshot?: string;
 }
 
 export interface AppUser {
@@ -168,6 +206,7 @@ export type QuotationDetailInput = {
   Qty: number;
   /** Admin 可覆寫；Staff 建立時強制用 List_Price */
   Unit_Price?: number;
+  Discount_Rate?: number;
 };
 
 export type QuotationCreateInput = {

@@ -167,12 +167,7 @@ const EXTRA_PRODUCTS: Omit<Product, "Product_ID">[] = [
 
 const TYPES: CustomerType[] = ["零售", "批發", "企業"];
 const TERMS: PaymentTerms[] = ["現結", "月結30天"];
-const ORDER_STATUSES: OrderStatus[] = [
-  "待確認",
-  "處理中",
-  "已出貨",
-  "已取消",
-];
+const ORDER_STATUSES: OrderStatus[] = ["Draft", "Confirmed", "Cancelled"];
 const QUOTE_STATUSES: QuoteStatus[] = [
   "Draft",
   "Sent",
@@ -285,16 +280,26 @@ export function buildVolumeDocuments(input: {
     const sub1 = p1.List_Price * qty1;
     const sub2 = p2.List_Price * qty2;
     const total = sub1 + sub2;
-    const shipped = status === "已出貨";
+    const shipped = status === "Confirmed" && i % 3 === 0;
     const orderDate = dateOffset(input.baseDate, -(i % 14));
+    const due = dateOffset(orderDate, 5 + (i % 5));
 
     orders.push({
       Order_ID: id,
       Order_Date: orderDate,
       Customer_ID: cust.Customer_ID,
       Order_Status: status,
+      Requested_Date: due,
+      Promised_Date: due,
+      Delivery_Agreed: true,
+      Delivery_Date: due,
+      Ship_To_Name: cust.Customer_Name,
+      Ship_To_Address: "示範收貨地址",
+      Payment_Terms_Snapshot: cust.Payment_Terms,
+      Subtotal: total,
+      Tax_Rate: 0.05,
+      Tax_Amount: 0,
       Total_Amount: total,
-      Delivery_Date: dateOffset(orderDate, 5 + (i % 5)),
       Stock_Deducted: shipped,
     });
 
@@ -304,20 +309,22 @@ export function buildVolumeDocuments(input: {
         Order_ID: id,
         Product_ID: p1.Product_ID,
         Product_Name_Snapshot: p1.Product_Name,
+        Unit_Snapshot: p1.Unit,
         Qty: qty1,
         Unit_Price: p1.List_Price,
-        Discount: 1,
-        Subtotal: sub1,
+        Discount_Rate: 0,
+        Line_Amount: sub1,
       },
       {
         Detail_ID: `D${pad(detailSeq++)}`,
         Order_ID: id,
         Product_ID: p2.Product_ID,
         Product_Name_Snapshot: p2.Product_Name,
+        Unit_Snapshot: p2.Unit,
         Qty: qty2,
         Unit_Price: p2.List_Price,
-        Discount: 1,
-        Subtotal: sub2,
+        Discount_Rate: 0,
+        Line_Amount: sub2,
       },
     );
 

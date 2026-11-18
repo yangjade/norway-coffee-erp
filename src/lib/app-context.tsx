@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -23,9 +24,15 @@ import {
   type InventoryActionResult,
 } from "./inventory-rules";
 import {
+  cancelOrder as cancelOrderRule,
+  confirmOrder as confirmOrderRule,
   convertQuoteToOrder,
-  ensureOrderDeliveryDate,
-  validateDeliveryDate,
+  ensureDetailShape,
+  ensureOrderShape,
+  reopenOrder as reopenOrderRule,
+  updateDraftOrder as updateDraftOrderRule,
+  WEEK8_BUSINESS_DATE,
+  type DraftPatch,
   type OrderActionResult,
 } from "./order-rules";
 import {
@@ -71,7 +78,7 @@ import type {
   Customer,
   CustomerCreateInput,
   CustomerUpdateInput,
-  OrderStatus,
+  OrderAuditEntry,
   Payment,
   Product,
   ProductCreateInput,
@@ -87,8 +94,8 @@ import type {
   StockMove,
 } from "./types";
 
-const STORAGE_KEY = "norway-coffee-erp-demo-v5";
-const STORAGE_VERSION = 5 as const;
+const STORAGE_KEY = "norway-coffee-erp-demo-v6";
+const STORAGE_VERSION = 6 as const;
 
 interface PersistedState {
   version: typeof STORAGE_VERSION;
@@ -102,6 +109,7 @@ interface PersistedState {
   stockMoves: StockMove[];
   receivables: Receivable[];
   payments: Payment[];
+  orderAudits: OrderAuditEntry[];
   currentUserId: string;
 }
 
@@ -127,18 +135,29 @@ interface AppContextValue {
     userId: string,
     isActive: boolean,
   ) => { ok: boolean; message?: string };
-  setOrderStatus: (
-    orderId: string,
-    status: OrderStatus,
-  ) => { ok: boolean; message?: string };
-  updateOrderDeliveryDate: (
-    orderId: string,
-    deliveryDate: string,
-  ) => { ok: boolean; message?: string };
+  orderAudits: OrderAuditEntry[];
   convertAcceptedQuote: (
     quoteId: string,
-    options?: { deliveryDate?: string },
+    options?: {
+      asOfDate?: string;
+      requestedDate?: string;
+      promisedDate?: string;
+    },
   ) => OrderActionResult;
+  saveDraftOrder: (
+    orderId: string,
+    patch: DraftPatch,
+  ) => OrderActionResult;
+  confirmSalesOrder: (orderId: string) => OrderActionResult;
+  cancelSalesOrder: (orderId: string, reason: string) => OrderActionResult;
+  reopenSalesOrder: (orderId: string, reason: string) => OrderActionResult;
+  shipConfirmedOrder: (orderId: string) => { ok: boolean; message?: string };
+  unshipOrder: (orderId: string) => { ok: boolean; message?: string };
+  /** @deprecated 僅相容舊 ClassroomSim；請用 cancel／confirm／ship */
+  setOrderStatus: (
+    orderId: string,
+    status: string,
+  ) => { ok: boolean; message?: string };
   adjustInventory: (
     productId: string,
     delta: number,
@@ -204,8 +223,8 @@ const AppContext = createContext<AppContextValue | null>(null);
 function cloneSeed(): Omit<PersistedState, "version"> {
   return {
     users: initialUsers.map((u) => ({ ...u })),
-    orders: initialOrders.map((o) => ({ ...o })),
-    orderDetails: seedOrderDetails.map((d) => ({ ...d })),
+    orders: initialOrders.map((o) => ensureOrderShape({ ...o })),
+    orderDetails: seedOrderDetails.map((d) => ensureDetailShape({ ...d })),
     customers: seedCustomers.map((c) => ({ ...c })),
     products: seedProducts.map((p) => ({ ...p })),
     quotations: initialQuotations.map((q) => ({ ...q })),
@@ -213,6 +232,7 @@ function cloneSeed(): Omit<PersistedState, "version"> {
     stockMoves: initialStockMoves.map((m) => ({ ...m })),
     receivables: initialReceivables.map((r) => ({ ...r })),
     payments: initialPayments.map((p) => ({ ...p })),
+    orderAudits: [],
     currentUserId: "U001",
   };
 }
@@ -257,7 +277,8 @@ function migrateFromLegacy(parsed: {
     parsed?.version !== 2 &&
     parsed?.version !== 3 &&
     parsed?.version !== 4 &&
-    parsed?.version !== 5
+    parsed?.version !== 5 &&
+    parsed?.version !== 6
   ) {
     return null;
   }
@@ -302,19 +323,15 @@ function migrateFromLegacy(parsed: {
     ? (parsed.payments as Payment[]).map((p) => ({ ...p }))
     : seed.payments;
   const orders = (parsed.orders as SalesOrder[]).map((o) =>
-    ensureOrderDeliveryDate({
-      ...o,
-      Stock_Deducted:
-        o.Stock_Deducted ??
-        (o.Order_Status === "已出貨" ? true : false),
-    }),
+    ensureOrderShape({ ...o }),
   );
+  const normalizedDetails = orderDetails.map((d) => ensureDetailShape(d));
 
   return {
     version: STORAGE_VERSION,
     users: parsed.users as AppUser[],
     orders,
-    orderDetails,
+    orderDetails: normalizedDetails,
     customers: parsed.customers as Customer[],
     products,
     quotations,
@@ -322,6 +339,9 @@ function migrateFromLegacy(parsed: {
     stockMoves,
     receivables,
     payments,
+    orderAudits: Array.isArray((parsed as { orderAudits?: unknown }).orderAudits)
+      ? ((parsed as { orderAudits: OrderAuditEntry[] }).orderAudits as OrderAuditEntry[])
+      : [],
     currentUserId: parsed.currentUserId,
   };
 }
@@ -331,17 +351,12 @@ function readStorage(): PersistedState | null {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
-      window.localStorage.getItem("norway-coffee-erp-demo-v4") ??
-      window.localStorage.getItem("norway-coffee-erp-demo-v3") ??
-      window.localStorage.getItem("norway-coffee-erp-demo-v2");
+      window.localStorage.getItem("norway-coffee-erp-demo-v5") ??
+      window.localStorage.getItem("norway-coffee-erp-demo-v4");
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { version?: number; orders?: unknown[] };
-    // v5 起預設體量更大；舊版本機資料若訂單過少，改載完整種子以便分頁／儀表板示範
-    if (
-      parsed?.version !== 5 &&
-      Array.isArray(parsed.orders) &&
-      parsed.orders.length < 20
-    ) {
+    // v6＝第 8 週正式狀態機；舊版強制重載完整種子
+    if (parsed?.version !== 6) {
       return null;
     }
     return migrateFromLegacy(parsed);
@@ -374,7 +389,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     seed.receivables,
   );
   const [payments, setPayments] = useState<Payment[]>(seed.payments);
+  const [orderAudits, setOrderAudits] = useState<OrderAuditEntry[]>(
+    seed.orderAudits,
+  );
   const [currentUserId, setCurrentUserId] = useState(seed.currentUserId);
+  const ordersRef = useRef(orders);
+  const orderDetailsRef = useRef(orderDetails);
+  const orderAuditsRef = useRef(orderAudits);
+  const productsRef = useRef(products);
+  const receivablesRef = useRef(receivables);
+  const paymentsRef = useRef(payments);
+  const stockMovesRef = useRef(stockMoves);
+  const usersRef = useRef(users);
+  const currentUserIdRef = useRef(currentUserId);
+  ordersRef.current = orders;
+  orderDetailsRef.current = orderDetails;
+  orderAuditsRef.current = orderAudits;
+  productsRef.current = products;
+  receivablesRef.current = receivables;
+  paymentsRef.current = payments;
+  stockMovesRef.current = stockMoves;
+  usersRef.current = users;
+  currentUserIdRef.current = currentUserId;
   const [hydrated, setHydrated] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [simLoadError, setSimLoadError] = useState(false);
@@ -401,6 +437,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setStockMoves(stored.stockMoves.map((m) => ({ ...m })));
       setReceivables(stored.receivables.map((r) => ({ ...r })));
       setPayments(stored.payments.map((p) => ({ ...p })));
+      setOrderAudits((stored.orderAudits ?? []).map((a) => ({ ...a })));
       const active =
         stored.users.find((u) => u.User_ID === stored.currentUserId)
           ?.Is_Active !== false
@@ -433,6 +470,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stockMoves,
       receivables,
       payments,
+      orderAudits,
       currentUserId,
     });
     setLastSavedAt(Date.now());
@@ -447,6 +485,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quotationDetails,
     stockMoves,
     receivables,
+    orderAudits,
     payments,
     currentUserId,
   ]);
@@ -519,9 +558,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ? "資料已同步 · 已儲存於本機"
     : "載入本機資料中…";
 
+  const activeUser = useCallback(() => {
+    const id = currentUserIdRef.current;
+    return (
+      usersRef.current.find((u) => u.User_ID === id) ?? usersRef.current[0]
+    );
+  }, []);
+
   const switchUser = useCallback(
     (userId: string) => {
-      const target = users.find((u) => u.User_ID === userId);
+      const target = usersRef.current.find((u) => u.User_ID === userId);
       if (!target) return { ok: false, message: "找不到該使用者。" };
       if (!target.Is_Active) {
         return {
@@ -529,11 +575,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           message: `${target.User_ID} 已停用，無法切換為此使用者。`,
         };
       }
+      currentUserIdRef.current = userId;
       setCurrentUserId(userId);
       if (target.Role !== "Admin") router.push("/");
       return { ok: true };
     },
-    [users, router],
+    [router],
   );
 
   const setUserActive = useCallback(
@@ -557,140 +604,232 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [currentUser.Role],
   );
 
-  const updateOrderDeliveryDate = useCallback(
-    (orderId: string, deliveryDate: string) => {
-      const order = orders.find((o) => o.Order_ID === orderId);
-      if (!order) return { ok: false, message: "找不到該訂單。" };
-      if (order.Order_Status === "已出貨" || order.Order_Status === "已取消") {
-        return {
-          ok: false,
-          message: `「${order.Order_Status}」訂單不可再改交期。`,
-        };
-      }
-      const check = validateDeliveryDate(deliveryDate, order.Order_Date);
-      if (!check.ok) return { ok: false, message: check.message };
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.Order_ID === orderId
-            ? { ...o, Delivery_Date: deliveryDate.trim() }
-            : o,
-        ),
-      );
-      return { ok: true, message: `交期已更新為 ${deliveryDate.trim()}` };
-    },
-    [orders],
-  );
-
-  const setOrderStatus = useCallback(
-    (orderId: string, status: OrderStatus) => {
-      const order = orders.find((o) => o.Order_ID === orderId);
-      if (!order) return { ok: false, message: "找不到該訂單。" };
-      if (order.Order_Status === status) {
-        return { ok: true, message: "狀態未變更。" };
-      }
-
-      if (order.Order_Status === "已取消" && status === "已出貨") {
-        return {
-          ok: false,
-          message:
-            "已取消訂單不可直接標為已出貨；請先改回「待確認」或「處理中」。",
-        };
-      }
-
-      const leavingShipped = order.Order_Status === "已出貨" && status !== "已出貨";
-      const enteringShipped =
-        status === "已出貨" && order.Order_Status !== "已出貨";
-
-      if (leavingShipped) {
-        const voidRes = voidReceivableForUnship(
-          orderId,
-          receivables,
-          payments,
-        );
-        if (!voidRes.ok) {
-          return { ok: false, message: voidRes.message };
-        }
-        const restore = restoreStockForUnship(
-          order,
-          orderDetails,
-          products,
-          stockMoves,
-        );
-        if (!restore.ok || !restore.products || !restore.moves || !restore.order) {
-          return { ok: false, message: restore.message ?? "還原庫存失敗。" };
-        }
-        setReceivables(voidRes.receivables ?? receivables);
-        setProducts(restore.products);
-        setStockMoves(restore.moves);
-        setOrders((prev) =>
-          prev.map((o) =>
-            o.Order_ID === orderId
-              ? { ...restore.order!, Order_Status: status }
-              : o,
-          ),
-        );
-        return {
-          ok: true,
-          message: `已改為「${status}」${voidRes.message ? `；${voidRes.message}` : ""}`,
-        };
-      }
-
-      if (enteringShipped) {
-        const deduct = deductStockForShip(
-          order,
-          orderDetails,
-          products,
-          stockMoves,
-        );
-        if (!deduct.ok || !deduct.products || !deduct.moves || !deduct.order) {
-          return { ok: false, message: deduct.message ?? "扣庫失敗。" };
-        }
-        const shipped = { ...deduct.order, Order_Status: "已出貨" as const };
-        const arRes = ensureReceivableForOrder(shipped, receivables);
-        setProducts(deduct.products);
-        setStockMoves(deduct.moves);
-        setOrders((prev) =>
-          prev.map((o) => (o.Order_ID === orderId ? shipped : o)),
-        );
-        if (arRes.receivables) setReceivables(arRes.receivables);
-        return {
-          ok: true,
-          message: `已出貨並扣庫${arRes.receivable ? `；應收 ${arRes.receivable.AR_ID}` : ""}`,
-        };
-      }
-
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.Order_ID === orderId ? { ...o, Order_Status: status } : o,
-        ),
-      );
-      return { ok: true, message: `狀態已更新為「${status}」` };
-    },
-    [orders, orderDetails, products, stockMoves, receivables, payments],
-  );
-
   const convertAcceptedQuote = useCallback(
     (
       quoteId: string,
-      options?: { deliveryDate?: string },
+      options?: {
+        asOfDate?: string;
+        requestedDate?: string;
+        promisedDate?: string;
+      },
     ): OrderActionResult => {
       const quote = quotations.find((q) => q.Quote_ID === quoteId);
       if (!quote) return { ok: false, message: "找不到該報價。" };
+      const existing = ordersRef.current.find((o) => o.Quote_ID === quoteId);
+      if (existing) {
+        return {
+          ok: true,
+          message: `此報價已轉為 ${existing.Order_ID}，開啟原訂單。`,
+          order: existing,
+          details: orderDetailsRef.current.filter(
+            (d) => d.Order_ID === existing.Order_ID,
+          ),
+        };
+      }
       const result = convertQuoteToOrder(
         quote,
         quotationDetails,
         customers,
-        products,
-        orders,
-        orderDetails,
-        options,
+        productsRef.current,
+        ordersRef.current,
+        orderDetailsRef.current,
+        {
+          asOfDate: options?.asOfDate ?? WEEK8_BUSINESS_DATE,
+          requestedDate: options?.requestedDate ?? "2026-11-23",
+          promisedDate: options?.promisedDate ?? "2026-11-23",
+        },
       );
       if (!result.ok || !result.order || !result.details) return result;
-      setOrders((prev) => [...prev, result.order!]);
-      setOrderDetails((prev) => [...prev, ...result.details!]);
+      ordersRef.current = [...ordersRef.current, result.order];
+      orderDetailsRef.current = [
+        ...orderDetailsRef.current,
+        ...result.details,
+      ];
+      setOrders(ordersRef.current);
+      setOrderDetails(orderDetailsRef.current);
       return result;
     },
-    [quotations, quotationDetails, customers, products, orders, orderDetails],
+    [quotations, quotationDetails, customers],
+  );
+
+  const saveDraftOrder = useCallback(
+    (orderId: string, patch: DraftPatch): OrderActionResult => {
+      const order = ordersRef.current.find((o) => o.Order_ID === orderId);
+      if (!order) return { ok: false, message: "找不到該訂單。" };
+      const role = activeUser().Role;
+      if (order.Order_Status === "Confirmed" && role !== "Admin") {
+        return {
+          ok: false,
+          message: "Staff 不可修改已確認訂單。",
+        };
+      }
+      if (order.Order_Status === "Confirmed" && role === "Admin") {
+        return {
+          ok: false,
+          message: "已確認訂單請先填原因重開為草稿後再修改。",
+        };
+      }
+      const details = orderDetailsRef.current.filter(
+        (d) => d.Order_ID === orderId,
+      );
+      const result = updateDraftOrderRule(order, details, patch, role);
+      if (!result.ok || !result.order || !result.details) return result;
+      ordersRef.current = ordersRef.current.map((o) =>
+        o.Order_ID === orderId ? result.order! : o,
+      );
+      orderDetailsRef.current = [
+        ...orderDetailsRef.current.filter((d) => d.Order_ID !== orderId),
+        ...result.details,
+      ];
+      setOrders(ordersRef.current);
+      setOrderDetails(orderDetailsRef.current);
+      return result;
+    },
+    [activeUser],
+  );
+
+  const confirmSalesOrder = useCallback(
+    (orderId: string): OrderActionResult => {
+      const order = ordersRef.current.find((o) => o.Order_ID === orderId);
+      if (!order) return { ok: false, message: "找不到該訂單。" };
+      const details = orderDetailsRef.current.filter(
+        (d) => d.Order_ID === orderId,
+      );
+      const result = confirmOrderRule(order, details);
+      if (!result.ok || !result.order) return result;
+      ordersRef.current = ordersRef.current.map((o) =>
+        o.Order_ID === orderId ? result.order! : o,
+      );
+      setOrders(ordersRef.current);
+      return result;
+    },
+    [],
+  );
+
+  const cancelSalesOrder = useCallback(
+    (orderId: string, reason: string): OrderActionResult => {
+      const order = ordersRef.current.find((o) => o.Order_ID === orderId);
+      if (!order) return { ok: false, message: "找不到該訂單。" };
+      const user = activeUser();
+      const result = cancelOrderRule(
+        order,
+        user.Role,
+        reason,
+        user,
+        orderAuditsRef.current,
+      );
+      if (!result.ok || !result.order) return result;
+      ordersRef.current = ordersRef.current.map((o) =>
+        o.Order_ID === orderId ? result.order! : o,
+      );
+      setOrders(ordersRef.current);
+      if (result.audit) {
+        orderAuditsRef.current = [...orderAuditsRef.current, result.audit];
+        setOrderAudits(orderAuditsRef.current);
+      }
+      return result;
+    },
+    [activeUser],
+  );
+
+  const reopenSalesOrder = useCallback(
+    (orderId: string, reason: string): OrderActionResult => {
+      const order = ordersRef.current.find((o) => o.Order_ID === orderId);
+      if (!order) return { ok: false, message: "找不到該訂單。" };
+      const user = activeUser();
+      const result = reopenOrderRule(
+        order,
+        user.Role,
+        reason,
+        user,
+        orderAuditsRef.current,
+      );
+      if (!result.ok || !result.order) return result;
+      ordersRef.current = ordersRef.current.map((o) =>
+        o.Order_ID === orderId ? result.order! : o,
+      );
+      setOrders(ordersRef.current);
+      if (result.audit) {
+        orderAuditsRef.current = [...orderAuditsRef.current, result.audit];
+        setOrderAudits(orderAuditsRef.current);
+      }
+      return result;
+    },
+    [activeUser],
+  );
+
+  const shipConfirmedOrder = useCallback(
+    (orderId: string) => {
+      const order = orders.find((o) => o.Order_ID === orderId);
+      if (!order) return { ok: false, message: "找不到該訂單。" };
+      if (order.Order_Status !== "Confirmed") {
+        return { ok: false, message: "僅已確認訂單可出貨扣庫。" };
+      }
+      const deduct = deductStockForShip(
+        order,
+        orderDetails,
+        products,
+        stockMoves,
+      );
+      if (!deduct.ok || !deduct.products || !deduct.moves || !deduct.order) {
+        return { ok: false, message: deduct.message ?? "扣庫失敗。" };
+      }
+      const shipped = deduct.order;
+      const arRes = ensureReceivableForOrder(shipped, receivables);
+      setProducts(deduct.products);
+      setStockMoves(deduct.moves);
+      setOrders((prev) =>
+        prev.map((o) => (o.Order_ID === orderId ? shipped : o)),
+      );
+      if (arRes.receivables) setReceivables(arRes.receivables);
+      return {
+        ok: true,
+        message: `已出貨並扣庫${arRes.receivable ? `；應收 ${arRes.receivable.AR_ID}` : ""}`,
+      };
+    },
+    [orders, orderDetails, products, stockMoves, receivables],
+  );
+
+  const unshipOrder = useCallback(
+    (orderId: string) => {
+      const order = orders.find((o) => o.Order_ID === orderId);
+      if (!order) return { ok: false, message: "找不到該訂單。" };
+      const voidRes = voidReceivableForUnship(orderId, receivables, payments);
+      if (!voidRes.ok) return { ok: false, message: voidRes.message };
+      const restore = restoreStockForUnship(
+        order,
+        orderDetails,
+        products,
+        stockMoves,
+      );
+      if (!restore.ok || !restore.products || !restore.moves || !restore.order) {
+        return { ok: false, message: restore.message ?? "還原庫存失敗。" };
+      }
+      setReceivables(voidRes.receivables ?? receivables);
+      setProducts(restore.products);
+      setStockMoves(restore.moves);
+      setOrders((prev) =>
+        prev.map((o) => (o.Order_ID === orderId ? restore.order! : o)),
+      );
+      return { ok: true, message: "已取消出貨並還原庫存。" };
+    },
+    [orders, orderDetails, products, stockMoves, receivables, payments],
+  );
+
+  const setOrderStatus = useCallback(
+    (orderId: string, status: string) => {
+      if (status === "已出貨" || status === "ship") {
+        return shipConfirmedOrder(orderId);
+      }
+      if (status === "Cancelled" || status === "已取消") {
+        return cancelSalesOrder(orderId, "模擬取消");
+      }
+      if (status === "Confirmed" || status === "已確認") {
+        return confirmSalesOrder(orderId);
+      }
+      return { ok: false, message: `請改用確認／取消／出貨操作（${status}）。` };
+    },
+    [shipConfirmedOrder, cancelSalesOrder, confirmSalesOrder],
   );
 
   const adjustInventory = useCallback(
@@ -957,6 +1096,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const applySeedLike = useCallback(
     (next: Omit<PersistedState, "version">) => {
+      usersRef.current = next.users;
+      ordersRef.current = next.orders;
+      orderDetailsRef.current = next.orderDetails;
+      productsRef.current = next.products;
+      stockMovesRef.current = next.stockMoves;
+      receivablesRef.current = next.receivables;
+      paymentsRef.current = next.payments;
+      orderAuditsRef.current = next.orderAudits ?? [];
+      currentUserIdRef.current = next.currentUserId;
       setUsers(next.users);
       setOrders(next.orders);
       setOrderDetails(next.orderDetails);
@@ -967,6 +1115,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setStockMoves(next.stockMoves);
       setReceivables(next.receivables);
       setPayments(next.payments);
+      setOrderAudits(next.orderAudits ?? []);
       setCurrentUserId(next.currentUserId);
       writeStorage({ version: STORAGE_VERSION, ...next });
       setSimLoadError(false);
@@ -1009,6 +1158,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     stockMoves,
     receivables,
     payments,
+    orderAudits,
     kpi,
     hydrated,
     persistLabel,
@@ -1016,8 +1166,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     switchUser,
     setUserActive,
     setOrderStatus,
-    updateOrderDeliveryDate,
     convertAcceptedQuote,
+    saveDraftOrder,
+    confirmSalesOrder,
+    cancelSalesOrder,
+    reopenSalesOrder,
+    shipConfirmedOrder,
+    unshipOrder,
     adjustInventory,
     recordArPayment,
     createCustomer,

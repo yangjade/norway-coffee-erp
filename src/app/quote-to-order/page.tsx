@@ -3,15 +3,15 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Notice, PageHeader } from "@/components/Notice";
 import { useApp } from "@/lib/app-context";
 import { formatTwd } from "@/lib/format";
 import {
-  defaultDeliveryDate,
   orderAlreadyFromQuote,
   ORDER_STATUS_RULES_ZH,
+  WEEK8_BUSINESS_DATE,
 } from "@/lib/order-rules";
-import { statusLabel, todayLocalDate } from "@/lib/quotation-rules";
-import { Notice, PageHeader } from "@/components/Notice";
+import { statusLabel } from "@/lib/quotation-rules";
 
 export default function QuoteToOrderPage() {
   const router = useRouter();
@@ -27,50 +27,21 @@ export default function QuoteToOrderPage() {
   } = useApp();
   const [flash, setFlash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [deliveryByQuote, setDeliveryByQuote] = useState<Record<string, string>>(
-    {},
-  );
+  const [asOf] = useState(WEEK8_BUSINESS_DATE);
 
-  const accepted = useMemo(
+  const candidates = useMemo(
     () =>
-      quotations
-        .filter((q) => q.Status === "Accepted")
-        .sort((a, b) => b.Quote_Date.localeCompare(a.Quote_Date)),
+      [...quotations].sort((a, b) => b.Quote_Date.localeCompare(a.Quote_Date)),
     [quotations],
   );
-
-  function deliveryFor(quoteId: string) {
-    return (
-      deliveryByQuote[quoteId] ?? defaultDeliveryDate(todayLocalDate())
-    );
-  }
-
-  function canConvert(quoteId: string, customerId: string) {
-    const linked = orderAlreadyFromQuote(orders, quoteId);
-    if (linked) return { ok: false as const, reason: `已轉 ${linked.Order_ID}` };
-    const cust = customers.find((c) => c.Customer_ID === customerId);
-    if (!cust?.Is_Active) {
-      return { ok: false as const, reason: "客戶已停用" };
-    }
-    const lines = quotationDetails.filter((d) => d.Quote_ID === quoteId);
-    const inactive = lines.filter((d) => {
-      const p = products.find((x) => x.Product_ID === d.Product_ID);
-      return !p || !p.Is_Active;
-    });
-    if (inactive.length) {
-      return {
-        ok: false as const,
-        reason: `含停用商品 ${inactive.map((d) => d.Product_ID).join("、")}`,
-      };
-    }
-    return { ok: true as const };
-  }
 
   function handleConvert(quoteId: string) {
     setFlash(null);
     setError(null);
     const result = convertAcceptedQuote(quoteId, {
-      deliveryDate: deliveryFor(quoteId),
+      asOfDate: asOf,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
     });
     if (!result.ok || !result.order) {
       setError(result.message ?? "轉單失敗");
@@ -82,9 +53,9 @@ export default function QuoteToOrderPage() {
 
   if (!hydrated) {
     return (
-      <div className="space-y-4 animate-rise">
+      <div className="space-y-4">
         <PageHeader title="報價轉訂單" description="第 8 週" />
-        <Notice kind="info">正在載入本機資料…</Notice>
+        <Notice kind="info">載入中…</Notice>
       </div>
     );
   }
@@ -93,158 +64,122 @@ export default function QuoteToOrderPage() {
     <div
       className="space-y-5 animate-rise"
       data-week8="quote-to-order"
-      data-week8-marker="week8-delivery-20261118"
+      data-week8-marker="week8-official-20261118"
     >
       <PageHeader
         title="報價轉訂單"
-        description="Accepted 報價 → Sales_Order＋明細（客戶／商品／單價／數量／總額快照）＋交期 · 第 8 週"
+        description="已接受且未逾期 → Draft 訂單；快照單價／折扣；業務日固定 2026-11-18"
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/quotations/" className="btn-ghost text-sm">
-              報價列表
-            </Link>
-            <Link href="/orders/" className="btn-ghost text-sm">
-              訂單列表
-            </Link>
-            <Link href="/acceptance/" className="btn-ghost text-sm">
-              驗收區
-            </Link>
-          </div>
+          <Link href="/orders/" className="btn-ghost text-sm">
+            訂單列表
+          </Link>
         }
       />
 
       <Notice kind="info">
-        僅 Accepted 可轉單；停用客戶／停用商品會拒絕；同一報價不可重複轉換。轉出訂單預設「待確認」，並寫入交期（Delivery_Date）。本週核心不扣庫、不建應收——出貨後才走第 10／12 週。
+        業務日（asOf）={asOf}。案例 QT-20261118-001 轉單總額應為 7,560。同報價連按回原單。確認訂單不扣庫。
       </Notice>
 
-      <div className="panel px-4 py-3.5 text-xs leading-relaxed text-[var(--muted)]">
-        <p className="font-medium text-[var(--brand-deep)]">訂單狀態機（第 8 週）</p>
-        <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
-          {ORDER_STATUS_RULES_ZH.map((rule) => (
-            <li key={rule}>{rule}</li>
+      <div className="panel px-4 py-3 text-xs text-[var(--muted)]">
+        <ul className="list-disc pl-4">
+          {ORDER_STATUS_RULES_ZH.map((r) => (
+            <li key={r}>{r}</li>
           ))}
         </ul>
       </div>
 
-      {flash && (
-        <div className="animate-success-flash">
-          <Notice kind="info">{flash}</Notice>
-        </div>
-      )}
+      {flash && <Notice kind="info">{flash}</Notice>}
       {error && (
         <Notice kind="error" title="無法轉單">
           {error}
         </Notice>
       )}
 
-      {accepted.length === 0 ? (
-        <Notice kind="empty" title="尚無 Accepted 報價">
-          請先到報價詳細將 Sent 報價標為 Accepted（管理者），再回來轉單。樣本
-          Q003／Q005 為 Accepted 可直接試轉。
-          <div className="mt-3">
-            <Link href="/quotations/" className="btn-primary">
-              前往報價
-            </Link>
-          </div>
-        </Notice>
-      ) : (
-        <div className="table-shell">
-          <table>
-            <thead>
-              <tr>
-                <th>Quote_ID</th>
-                <th>客戶</th>
-                <th>報價日</th>
-                <th>狀態</th>
-                <th>總額快照</th>
-                <th>交期 Delivery_Date</th>
-                <th>連結訂單</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accepted.map((q) => {
-                const linked = orderAlreadyFromQuote(orders, q.Quote_ID);
-                const gate = canConvert(q.Quote_ID, q.Customer_ID);
-                return (
-                  <tr key={q.Quote_ID}>
-                    <td>
+      <div className="table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>Quote_ID</th>
+              <th>客戶</th>
+              <th>有效至</th>
+              <th>狀態</th>
+              <th>總額</th>
+              <th>連結訂單</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {candidates.map((q) => {
+              const linked = orderAlreadyFromQuote(orders, q.Quote_ID);
+              const expired = q.Valid_Until < asOf;
+              const cust = customers.find((c) => c.Customer_ID === q.Customer_ID);
+              const lines = quotationDetails.filter((d) => d.Quote_ID === q.Quote_ID);
+              const inactive = lines.some((d) => {
+                const p = products.find((x) => x.Product_ID === d.Product_ID);
+                return !p?.Is_Active;
+              });
+              const can =
+                q.Status === "Accepted" &&
+                !expired &&
+                cust?.Is_Active &&
+                !inactive;
+              return (
+                <tr key={q.Quote_ID}>
+                  <td>
+                    <Link
+                      href={`/quotations/${q.Quote_ID}/`}
+                      className="font-mono text-xs text-[var(--brand)] underline"
+                    >
+                      {q.Quote_ID}
+                    </Link>
+                  </td>
+                  <td>
+                    {q.Customer_ID} {customerName(q.Customer_ID)}
+                  </td>
+                  <td>{q.Valid_Until}</td>
+                  <td>
+                    {statusLabel(q.Status)}
+                    {expired ? " · 逾期" : ""}
+                  </td>
+                  <td className="tabular-nums">NT$ {formatTwd(q.Total)}</td>
+                  <td>
+                    {linked ? (
                       <Link
-                        href={`/quotations/${q.Quote_ID}/`}
-                        className="font-mono text-xs text-[var(--brand)] underline-offset-2 hover:underline"
+                        href={`/orders/${linked.Order_ID}/`}
+                        className="font-mono text-xs text-[var(--brand)] underline"
                       >
-                        {q.Quote_ID}
+                        {linked.Order_ID}
                       </Link>
-                    </td>
-                    <td>
-                      {q.Customer_ID} {customerName(q.Customer_ID)}
-                    </td>
-                    <td>{q.Quote_Date}</td>
-                    <td>{statusLabel(q.Status)}</td>
-                    <td className="tabular-nums">
-                      NT$ {formatTwd(q.Total)}
-                    </td>
-                    <td>
-                      {linked ? (
-                        <span className="font-mono text-xs">
-                          {linked.Delivery_Date}
-                        </span>
-                      ) : (
-                        <input
-                          type="date"
-                          className="field text-xs"
-                          value={deliveryFor(q.Quote_ID)}
-                          aria-label={`${q.Quote_ID} 交期`}
-                          onChange={(e) =>
-                            setDeliveryByQuote((prev) => ({
-                              ...prev,
-                              [q.Quote_ID]: e.target.value,
-                            }))
-                          }
-                        />
-                      )}
-                    </td>
-                    <td>
-                      {linked ? (
-                        <Link
-                          href={`/orders/${linked.Order_ID}/`}
-                          className="font-mono text-xs text-[var(--brand)] underline-offset-2 hover:underline"
-                        >
-                          {linked.Order_ID}
-                        </Link>
-                      ) : (
-                        <span className="text-xs text-[var(--muted)]">—</span>
-                      )}
-                    </td>
-                    <td>
-                      {linked ? (
-                        <span className="text-xs text-[var(--muted)]">
-                          已轉換
-                        </span>
-                      ) : gate.ok ? (
-                        <button
-                          type="button"
-                          className="btn-primary text-xs"
-                          onClick={() => handleConvert(q.Quote_ID)}
-                        >
-                          轉成訂單
-                        </button>
-                      ) : (
-                        <span
-                          className="text-xs text-[var(--danger)]"
-                          title={gate.reason}
-                        >
-                          {gate.reason}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn-primary text-xs"
+                      onClick={() => handleConvert(q.Quote_ID)}
+                    >
+                      {linked ? "開啟原訂單" : "轉成訂單"}
+                    </button>
+                    {!linked && !can && (
+                      <span className="ml-2 text-xs text-[var(--danger)]">
+                        {q.Status !== "Accepted"
+                          ? "尚未接受"
+                          : expired
+                            ? "已逾期"
+                            : inactive
+                              ? "停用商品"
+                              : "客戶停用"}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

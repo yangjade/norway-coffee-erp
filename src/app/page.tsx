@@ -24,7 +24,7 @@ export default function HomePage() {
   const activity = useRecentActivity(10);
 
   const pending = [...orders]
-    .filter((o) => o.Order_Status === "待確認" || o.Order_Status === "處理中")
+    .filter((o) => o.Order_Status === "Confirmed" && !o.Stock_Deducted)
     .sort((a, b) => b.Order_Date.localeCompare(a.Order_Date));
 
   const draftQuotes = quotations.filter((q) => q.Status === "Draft");
@@ -35,7 +35,7 @@ export default function HomePage() {
 
   const weekAgo = [...orders].filter((o) => {
     const d = o.Order_Date;
-    return d < BASE_DATE && d >= "2026-10-06" && o.Order_Status !== "已取消";
+    return d < BASE_DATE && d >= "2026-10-06" && o.Order_Status !== "Cancelled";
   });
   const todayAmt = kpi.todayValidOrderAmount;
   const weekAmt = weekAgo.reduce((s, o) => s + o.Total_Amount, 0);

@@ -12,10 +12,11 @@ import { useToast } from "@/components/ToastProvider";
 import { buildActivityFeed } from "@/lib/activity";
 import { useApp } from "@/lib/app-context";
 import { formatTwd } from "@/lib/format";
-import { ORDER_STATUS_RULES_ZH } from "@/lib/order-rules";
-import type { OrderStatus } from "@/lib/types";
-
-const STATUSES: OrderStatus[] = ["待確認", "處理中", "已出貨", "已取消"];
+import {
+  isLateDelivery,
+  ORDER_STATUS_RULES_ZH,
+  statusLabelZh,
+} from "@/lib/order-rules";
 
 export default function OrderDetailClient() {
   const params = useParams();
@@ -27,46 +28,46 @@ export default function OrderDetailClient() {
     payments,
     quotations,
     stockMoves,
-    setOrderStatus,
-    updateOrderDeliveryDate,
+    orderAudits,
+    currentUser,
+    saveDraftOrder,
+    confirmSalesOrder,
+    cancelSalesOrder,
+    reopenSalesOrder,
     customerName,
-    productName,
   } = useApp();
   const { pushToast } = useToast();
   const [error, setError] = useState<string | null>(null);
-  const [deliveryDraft, setDeliveryDraft] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [qtyDraft, setQtyDraft] = useState<Record<string, string>>({});
 
   const order = orders.find((o) => o.Order_ID === orderId);
   const details = orderDetails.filter((d) => d.Order_ID === orderId);
-  const detailSum = details.reduce((s, d) => s + d.Subtotal, 0);
   const ar = receivables.find(
     (r) => r.Order_ID === orderId && r.Status !== "已作廢",
   );
+  const audits = orderAudits.filter((a) => a.Order_ID === orderId);
 
   const timeline = useMemo(() => {
     if (!order) return [];
-    const relatedOrders = orders.filter((o) => o.Order_ID === orderId);
-    const relatedQuotes = order.Quote_ID
-      ? quotations.filter((q) => q.Quote_ID === order.Quote_ID)
-      : [];
-    const relatedAr = receivables.filter((r) => r.Order_ID === orderId);
-    const relatedPay = payments.filter((p) =>
-      relatedAr.some((r) => r.AR_ID === p.AR_ID),
-    );
-    const relatedMoves = stockMoves.filter((m) => m.Ref_Order_ID === orderId);
     return buildActivityFeed({
-      orders: relatedOrders,
-      quotations: relatedQuotes,
-      receivables: relatedAr,
-      payments: relatedPay,
-      stockMoves: relatedMoves,
+      orders: [order],
+      quotations: order.Quote_ID
+        ? quotations.filter((q) => q.Quote_ID === order.Quote_ID)
+        : [],
+      receivables: receivables.filter((r) => r.Order_ID === orderId),
+      payments: payments.filter((p) =>
+        receivables.some(
+          (r) => r.Order_ID === orderId && r.AR_ID === p.AR_ID,
+        ),
+      ),
+      stockMoves: stockMoves.filter((m) => m.Ref_Order_ID === orderId),
       customerName,
       limit: 8,
     });
   }, [
     order,
     orderId,
-    orders,
     quotations,
     receivables,
     payments,
@@ -79,58 +80,52 @@ export default function OrderDetailClient() {
       <div className="mx-auto max-w-xl space-y-4 animate-rise">
         <PageHeader title="訂單詳情" />
         <Notice kind="empty" title={`找不到訂單「${orderId}」`} showHomeLink>
-          Order_ID 不存在於樣本資料。
-          <div className="mt-3">
-            <Link
-              href="/orders"
-              className="text-[var(--brand)] underline-offset-2 hover:underline"
-            >
-              返回訂單列表
-            </Link>
-          </div>
+          <Link href="/orders/" className="text-[var(--brand)] underline">
+            返回訂單列表
+          </Link>
         </Notice>
       </div>
     );
   }
 
-  function changeStatus(next: OrderStatus) {
-    setError(null);
-    const result = setOrderStatus(order!.Order_ID, next);
-    if (!result.ok) {
-      setError(result.message ?? "狀態更新失敗");
-      pushToast({
-        tone: "error",
-        title: "無法更新狀態",
-        message: result.message ?? "失敗",
-      });
+  const late = isLateDelivery(order);
+  const isDraft = order.Order_Status === "Draft";
+  const isConfirmed = order.Order_Status === "Confirmed";
+  const isCancelled = order.Order_Status === "Cancelled";
+
+  function toastResult(ok: boolean, message?: string, title?: string) {
+    if (!ok) {
+      setError(message ?? "失敗");
+      pushToast({ tone: "error", title: title ?? "失敗", message: message ?? "" });
       return;
     }
-    pushToast({
-      tone: "success",
-      message: result.message ?? "已更新",
+    setError(null);
+    pushToast({ tone: "success", message: message ?? "完成" });
+  }
+
+  function saveDraft() {
+    if (!order) return;
+    const qtyByDetailId: Record<string, number> = {};
+    for (const d of details) {
+      const raw = qtyDraft[d.Detail_ID];
+      if (raw != null && raw !== "") {
+        qtyByDetailId[d.Detail_ID] = Number(raw);
+      }
+    }
+    const result = saveDraftOrder(order.Order_ID, {
+      requestedDate: order.Requested_Date,
+      promisedDate: order.Promised_Date,
+      deliveryAgreed: order.Delivery_Agreed,
+      deliveryAgreeNote: order.Delivery_Agree_Note,
+      shipToName: order.Ship_To_Name,
+      shipToAddress: order.Ship_To_Address,
+      paymentTerms: order.Payment_Terms_Snapshot,
+      notes: order.Notes,
+      qtyByDetailId:
+        Object.keys(qtyByDetailId).length > 0 ? qtyByDetailId : undefined,
     });
+    toastResult(result.ok, result.message, "無法儲存");
   }
-
-  function saveDeliveryDate() {
-    const next = (deliveryDraft ?? order!.Delivery_Date).trim();
-    setError(null);
-    const result = updateOrderDeliveryDate(order!.Order_ID, next);
-    if (!result.ok) {
-      setError(result.message ?? "交期更新失敗");
-      pushToast({
-        tone: "error",
-        title: "無法更新交期",
-        message: result.message ?? "失敗",
-      });
-      return;
-    }
-    setDeliveryDraft(null);
-    pushToast({ tone: "success", message: result.message ?? "交期已更新" });
-  }
-
-  const deliveryEditable =
-    order.Order_Status === "待確認" || order.Order_Status === "處理中";
-  const deliveryValue = deliveryDraft ?? order.Delivery_Date;
 
   return (
     <PrintSheet
@@ -138,25 +133,25 @@ export default function OrderDetailClient() {
       docId={order.Order_ID}
       meta={
         <>
-          {order.Order_Date} · 交期 {order.Delivery_Date} · {order.Customer_ID}{" "}
-          {customerName(order.Customer_ID)}
+          {order.Order_Date} · 期望 {order.Requested_Date} · 承諾{" "}
+          {order.Promised_Date}
         </>
       }
     >
       <div
         className="space-y-5 animate-rise"
         data-week8="order-detail"
-        data-week8-marker="week8-delivery-20261118"
+        data-week8-marker="week8-official-20261118"
       >
         <div className="no-print">
           <PageHeader
             title={`訂單 ${order.Order_ID}`}
-            description={`表頭 1 筆 · 明細 ${details.length} 筆 · 交期與狀態可維護（第 8 週）`}
+            description={`第 8 週 · ${statusLabelZh(order.Order_Status)} · 確認不扣庫`}
             actions={
               <PrintActions
                 extra={
-                  <Link href="/orders" className="btn-ghost text-sm">
-                    返回訂單列表
+                  <Link href="/orders/" className="btn-ghost text-sm">
+                    返回列表
                   </Link>
                 }
               />
@@ -166,262 +161,282 @@ export default function OrderDetailClient() {
 
         {error && (
           <div className="no-print">
-            <Notice kind="error" title="無法更新">
-              {error}
+            <Notice kind="error">{error}</Notice>
+          </div>
+        )}
+
+        {late && (
+          <div className="no-print">
+            <Notice kind="error" title="晚交提示">
+              承諾日 {order.Promised_Date} 晚於期望日 {order.Requested_Date}。
+              {order.Delivery_Agreed
+                ? "已記錄改期同意。"
+                : "尚未改期同意，不可確認。"}
             </Notice>
           </div>
         )}
 
         <div className="panel grid gap-2 px-4 py-3.5 text-sm sm:grid-cols-2">
           <p>
-            <span className="text-[var(--muted)]">訂單日期</span>{" "}
-            {order.Order_Date}
-          </p>
-          <p className="flex flex-wrap items-center gap-2">
-            <span className="text-[var(--muted)]">交期 Delivery_Date</span>{" "}
-            <span
-              className="font-semibold tabular-nums text-[var(--brand-deep)]"
-              data-field="Delivery_Date"
-            >
-              {order.Delivery_Date}
-            </span>
+            <span className="text-[var(--muted)]">訂單日</span> {order.Order_Date}
           </p>
           <p>
-            <span className="text-[var(--muted)]">客戶</span>{" "}
-            <Link
-              href={`/customers/${order.Customer_ID}/`}
-              className="text-[var(--brand)] underline-offset-2 hover:underline"
-            >
-              {order.Customer_ID} {customerName(order.Customer_ID)}
-            </Link>
-          </p>
-          <p className="flex flex-wrap items-center gap-2">
-            <span className="text-[var(--muted)]">訂單狀態</span>
+            <span className="text-[var(--muted)]">狀態</span>{" "}
             <StatusBadge status={order.Order_Status} />
           </p>
           <p>
-            <span className="text-[var(--muted)]">表頭金額（快照）</span>{" "}
-            <span className="font-semibold tabular-nums">
-              NT$ {formatTwd(order.Total_Amount)}
-            </span>
+            <span className="text-[var(--muted)]">期望交貨日</span>{" "}
+            {isDraft ? (
+              <input
+                type="date"
+                className="field text-xs"
+                value={order.Requested_Date}
+                onChange={(e) =>
+                  saveDraftOrder(order.Order_ID, {
+                    requestedDate: e.target.value,
+                  })
+                }
+              />
+            ) : (
+              order.Requested_Date
+            )}
+          </p>
+          <p>
+            <span className="text-[var(--muted)]">承諾交貨日</span>{" "}
+            {isDraft ? (
+              <input
+                type="date"
+                className="field text-xs"
+                value={order.Promised_Date}
+                onChange={(e) =>
+                  saveDraftOrder(order.Order_ID, {
+                    promisedDate: e.target.value,
+                  })
+                }
+              />
+            ) : (
+              <span data-field="Promised_Date">{order.Promised_Date}</span>
+            )}
+          </p>
+          <p>
+            <span className="text-[var(--muted)]">客戶</span> {order.Customer_ID}{" "}
+            {customerName(order.Customer_ID)}
           </p>
           <p>
             <span className="text-[var(--muted)]">來源報價</span>{" "}
             {order.Quote_ID ? (
               <Link
                 href={`/quotations/${order.Quote_ID}/`}
-                className="font-mono text-xs text-[var(--brand)] underline-offset-2 hover:underline"
+                className="font-mono text-xs text-[var(--brand)] underline"
               >
                 {order.Quote_ID}
               </Link>
             ) : (
-              <span className="text-[var(--muted)]">—（樣本／手動）</span>
+              "—"
             )}
           </p>
           <p>
-            <span className="text-[var(--muted)]">庫存／應收</span>{" "}
-            {order.Stock_Deducted ? "已扣庫" : "未扣庫"}
-            {ar ? (
-              <>
-                {" · "}
-                <Link
-                  href="/receivables/"
-                  className="text-[var(--brand)] underline-offset-2 hover:underline"
-                >
-                  {ar.AR_ID}（{ar.Status}）
-                </Link>
-              </>
-            ) : (
-              " · 尚無應收"
-            )}
+            <span className="text-[var(--muted)]">收貨地址</span>{" "}
+            {order.Ship_To_Address || "—"}
+          </p>
+          <p>
+            <span className="text-[var(--muted)]">付款條件</span>{" "}
+            {order.Payment_Terms_Snapshot || "—"}
+          </p>
+          <p>
+            <span className="text-[var(--muted)]">未稅小計</span> NT${" "}
+            {formatTwd(order.Subtotal)}
+          </p>
+          <p>
+            <span className="text-[var(--muted)]">稅額 5%</span> NT${" "}
+            {formatTwd(order.Tax_Amount)}
+          </p>
+          <p className="sm:col-span-2">
+            <span className="text-[var(--muted)]">含稅總額</span>{" "}
+            <span className="font-semibold tabular-nums" data-field="Total_Amount">
+              NT$ {formatTwd(order.Total_Amount)}
+            </span>
           </p>
         </div>
 
-        {deliveryEditable && (
-          <div className="no-print panel flex flex-wrap items-end gap-3 px-4 py-3.5">
-            <label className="block text-sm">
-              <span className="mb-1 block text-xs text-[var(--muted)]">
-                維護交期（不可早於訂單日）
-              </span>
+        {isDraft && (
+          <div className="no-print panel flex flex-wrap items-center gap-3 px-4 py-3">
+            <label className="flex items-center gap-2 text-sm">
               <input
-                type="date"
-                className="field"
-                value={deliveryValue}
-                aria-label="交期 Delivery_Date"
-                onChange={(e) => setDeliveryDraft(e.target.value)}
+                type="checkbox"
+                checked={order.Delivery_Agreed}
+                onChange={(e) =>
+                  saveDraftOrder(order.Order_ID, {
+                    deliveryAgreed: e.target.checked,
+                    deliveryAgreeNote: e.target.checked
+                      ? "客戶同意改期"
+                      : "",
+                  })
+                }
               />
+              改期同意 delivery_agreed
             </label>
-            <button
-              type="button"
-              className="btn-primary text-sm"
-              onClick={saveDeliveryDate}
-            >
-              儲存交期
-            </button>
           </div>
         )}
 
-        <div className="no-print panel px-4 py-3 text-xs leading-relaxed text-[var(--muted)]">
-          <p className="font-medium text-[var(--brand-deep)]">狀態機規則</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-4">
-            {ORDER_STATUS_RULES_ZH.map((rule) => (
-              <li key={rule}>{rule}</li>
+        <div className="table-shell table-dense">
+          <table>
+            <thead>
+              <tr>
+                <th>商品快照</th>
+                <th>單位</th>
+                <th>數量</th>
+                <th>單價</th>
+                <th>折扣%</th>
+                <th>折後未稅</th>
+              </tr>
+            </thead>
+            <tbody>
+              {details.map((d) => (
+                <tr key={d.Detail_ID}>
+                  <td>
+                    {d.Product_ID} {d.Product_Name_Snapshot}
+                  </td>
+                  <td>{d.Unit_Snapshot}</td>
+                  <td>
+                    {isDraft ? (
+                      <input
+                        className="field w-20 text-xs"
+                        type="number"
+                        value={qtyDraft[d.Detail_ID] ?? String(d.Qty)}
+                        onChange={(e) =>
+                          setQtyDraft((prev) => ({
+                            ...prev,
+                            [d.Detail_ID]: e.target.value,
+                          }))
+                        }
+                      />
+                    ) : (
+                      d.Qty
+                    )}
+                  </td>
+                  <td className="tabular-nums">{formatTwd(d.Unit_Price)}</td>
+                  <td className="tabular-nums">{d.Discount_Rate}</td>
+                  <td className="tabular-nums">{formatTwd(d.Line_Amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {audits.length > 0 && (
+          <div className="panel px-4 py-3 text-xs">
+            <p className="font-medium text-[var(--brand-deep)]">異動紀錄</p>
+            <ul className="mt-2 space-y-1 text-[var(--muted)]">
+              {audits.map((a) => (
+                <li key={a.Audit_ID}>
+                  {a.At.slice(0, 19)} · {a.User_Name} · {a.Action}
+                  {a.Reason ? ` · ${a.Reason}` : ""} · {a.Before}→{a.After}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="no-print panel px-4 py-3 text-xs text-[var(--muted)]">
+          <ul className="list-disc pl-4">
+            {ORDER_STATUS_RULES_ZH.map((r) => (
+              <li key={r}>{r}</li>
             ))}
           </ul>
         </div>
 
-        {order.Order_Status === "已出貨" && (
-          <div className="no-print">
-            <Notice kind="info">
-              已出貨：庫存已依明細扣減；應收見上方連結。改回其他狀態會嘗試還原庫存並作廢未收款應收。
-            </Notice>
-          </div>
-        )}
-
-        {details.length === 0 ? (
-          <Notice kind="empty">此訂單目前沒有明細列</Notice>
-        ) : (
-          <div className="table-shell table-dense">
-            <table>
-              <thead>
-                <tr>
-                  <th>Detail_ID</th>
-                  <th>商品（快照）</th>
-                  <th>Qty</th>
-                  <th>Unit_Price</th>
-                  <th>Discount</th>
-                  <th>Subtotal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {details.map((d) => (
-                  <tr key={d.Detail_ID}>
-                    <td className="font-mono text-xs">{d.Detail_ID}</td>
-                    <td>
-                      <Link
-                        href={`/products/${d.Product_ID}/`}
-                        className="text-[var(--brand)] underline-offset-2 hover:underline"
-                      >
-                        {d.Product_ID}{" "}
-                        {d.Product_Name_Snapshot || productName(d.Product_ID)}
-                      </Link>
-                    </td>
-                    <td className="tabular-nums">{d.Qty}</td>
-                    <td className="tabular-nums">{formatTwd(d.Unit_Price)}</td>
-                    <td className="tabular-nums">{d.Discount}</td>
-                    <td className="tabular-nums">{formatTwd(d.Subtotal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="text-right text-xs text-[var(--muted)]"
-                  >
-                    明細合計（單價／數量快照；表頭總額含稅）
-                  </td>
-                  <td className="font-semibold tabular-nums">
-                    NT$ {formatTwd(detailSum)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-
         <div className="no-print grid gap-8 lg:grid-cols-2">
-          <section>
-            <h2 className="font-display mb-3 text-base text-[var(--brand-deep)]">
-              相關紀錄
-            </h2>
-            <ul className="space-y-2 text-sm">
-              {order.Quote_ID && (
-                <li>
-                  報價{" "}
-                  <Link
-                    href={`/quotations/${order.Quote_ID}/`}
-                    className="text-[var(--brand)] underline-offset-2 hover:underline"
-                  >
-                    {order.Quote_ID}
-                  </Link>
-                </li>
-              )}
-              <li>
-                出貨{" "}
-                <Link
-                  href="/shipping/"
-                  className="text-[var(--brand)] underline-offset-2 hover:underline"
-                >
-                  揀貨清單
-                </Link>
-              </li>
-              {ar && (
-                <li>
-                  應收{" "}
-                  <Link
-                    href="/receivables/"
-                    className="text-[var(--brand)] underline-offset-2 hover:underline"
-                  >
-                    {ar.AR_ID}
-                  </Link>
-                </li>
-              )}
-            </ul>
-          </section>
           <ActivityTimeline items={timeline} title="本單動態" />
+          {ar && (
+            <p className="text-sm">
+              應收（出貨後）{" "}
+              <Link href="/receivables/" className="text-[var(--brand)] underline">
+                {ar.AR_ID}
+              </Link>
+            </p>
+          )}
         </div>
 
         <PrimaryActionBar
           status={
             <>
-              目前狀態 <StatusBadge status={order.Order_Status} />
+              目前 <StatusBadge status={order.Order_Status} /> ·{" "}
+              {currentUser.Role}
             </>
           }
         >
-          {(order.Order_Status === "待確認" ||
-            order.Order_Status === "處理中") && (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => changeStatus("已出貨")}
-            >
-              確認出貨
-            </button>
+          {isDraft && (
+            <>
+              <button type="button" className="btn-ghost" onClick={saveDraft}>
+                儲存草稿
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  const r = confirmSalesOrder(order.Order_ID);
+                  toastResult(r.ok, r.message, "無法確認");
+                }}
+              >
+                確認訂單
+              </button>
+              <input
+                className="field text-xs"
+                placeholder="取消原因"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  const r = cancelSalesOrder(order.Order_ID, reason);
+                  toastResult(r.ok, r.message, "無法取消");
+                }}
+              >
+                取消草稿
+              </button>
+            </>
           )}
-          {order.Order_Status === "待確認" && (
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => changeStatus("處理中")}
-            >
-              標為處理中
-            </button>
+          {isConfirmed && (
+            <>
+              <input
+                className="field text-xs"
+                placeholder="重開／取消原因（Admin）"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  const r = reopenSalesOrder(order.Order_ID, reason);
+                  toastResult(r.ok, r.message, "無法重開");
+                }}
+              >
+                Admin 重開
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  const r = cancelSalesOrder(order.Order_ID, reason);
+                  toastResult(r.ok, r.message, "無法取消");
+                }}
+              >
+                Admin 取消
+              </button>
+              <Link href="/shipping/" className="btn-primary">
+                出貨（第 11 週）
+              </Link>
+            </>
           )}
-          {ar && ar.Status !== "已結清" && (
-            <Link href="/receivables/" className="btn-ghost">
-              前往收款
-            </Link>
+          {isCancelled && (
+            <span className="text-xs text-[var(--muted)]">
+              已取消終態，不可再確認或刪除
+            </span>
           )}
-          <select
-            className="field text-xs"
-            value={order.Order_Status}
-            aria-label={`調整 ${order.Order_ID} 狀態`}
-            onChange={(e) => changeStatus(e.target.value as OrderStatus)}
-          >
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={() => window.print()}
-          >
-            列印訂單
-          </button>
         </PrimaryActionBar>
       </div>
     </PrintSheet>

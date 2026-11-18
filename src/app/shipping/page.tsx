@@ -17,7 +17,8 @@ export default function ShippingPage() {
     orderDetails,
     products,
     receivables,
-    setOrderStatus,
+    shipConfirmedOrder,
+    unshipOrder,
     customerName,
     productName,
     hydrated,
@@ -31,7 +32,7 @@ export default function ShippingPage() {
     () =>
       [...orders]
         .filter(
-          (o) => o.Order_Status === "待確認" || o.Order_Status === "處理中",
+          (o) => o.Order_Status === "Confirmed" && !o.Stock_Deducted,
         )
         .sort((a, b) => {
           const d = a.Order_Date.localeCompare(b.Order_Date);
@@ -43,7 +44,7 @@ export default function ShippingPage() {
   const shipped = useMemo(
     () =>
       [...orders]
-        .filter((o) => o.Order_Status === "已出貨")
+        .filter((o) => Boolean(o.Stock_Deducted))
         .sort((a, b) => {
           const d = b.Order_Date.localeCompare(a.Order_Date);
           return d !== 0 ? d : b.Order_ID.localeCompare(a.Order_ID);
@@ -73,7 +74,7 @@ export default function ShippingPage() {
   function shipOrder(orderId: string) {
     setFlash(null);
     setError(null);
-    const result = setOrderStatus(orderId, "已出貨");
+    const result = shipConfirmedOrder(orderId);
     if (!result.ok) {
       setError(result.message ?? "出貨失敗");
       return;
@@ -83,21 +84,14 @@ export default function ShippingPage() {
     setTab("shipped");
   }
 
-  function markProcessing(orderId: string) {
-    setFlash(null);
-    setError(null);
-    const result = setOrderStatus(orderId, "處理中");
-    if (!result.ok) {
-      setError(result.message ?? "更新失敗");
-      return;
-    }
-    setFlash(result.message ?? "已改為處理中");
+  function markProcessing() {
+    setFlash("已確認訂單即可揀貨出貨（第 8 週無「處理中」狀態）。");
   }
 
   function unship(orderId: string) {
     setFlash(null);
     setError(null);
-    const result = setOrderStatus(orderId, "處理中");
+    const result = unshipOrder(orderId);
     if (!result.ok) {
       setError(result.message ?? "取消出貨失敗");
       return;
@@ -137,7 +131,7 @@ export default function ShippingPage() {
       />
 
       <Notice kind="info">
-        待確認／處理中訂單可在此揀貨並「確認出貨」。出貨會呼叫與訂單相同的扣庫與應收邏輯；庫存不足時會阻擋。已收款的應收不可取消出貨。
+        已確認且未出貨訂單可在此揀貨並「確認出貨」（確認訂單本身不扣庫）。出貨會呼叫與訂單相同的扣庫與應收邏輯；庫存不足時會阻擋。已收款的應收不可取消出貨。
       </Notice>
 
       {flash && (
@@ -180,7 +174,7 @@ export default function ShippingPage() {
               待出貨訂單
             </h2>
             {pending.length === 0 ? (
-              <Notice kind="empty">目前沒有待確認或處理中的訂單</Notice>
+              <Notice kind="empty">目前沒有待出貨（已確認未扣庫）訂單</Notice>
             ) : (
               <ul className="divide-y divide-[var(--border-soft)] border border-[var(--border)] bg-[var(--surface)]">
                 {pending.map((o) => {
@@ -313,11 +307,11 @@ export default function ShippingPage() {
                 ) : null}
 
                 <div className="flex flex-wrap gap-2">
-                  {selected.Order_Status === "待確認" ? (
+                  {false ? (
                     <button
                       type="button"
                       className="btn-ghost"
-                      onClick={() => markProcessing(selected.Order_ID)}
+                      onClick={() => markProcessing()}
                     >
                       改為處理中
                     </button>
