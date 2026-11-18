@@ -8,7 +8,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
 } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -19,13 +21,14 @@ import {
 } from "./ar-rules";
 import {
   adjustOnHand,
+  confirmOrderWithReserve,
   deductStockForShip,
+  releaseOrderReserves,
   restoreStockForUnship,
   type InventoryActionResult,
 } from "./inventory-rules";
 import {
   cancelOrder as cancelOrderRule,
-  confirmOrder as confirmOrderRule,
   convertQuoteToOrder,
   ensureDetailShape,
   ensureOrderShape,
@@ -92,10 +95,11 @@ import type {
   SalesOrder,
   SalesOrderDetail,
   StockMove,
+  StockReservation,
 } from "./types";
 
-const STORAGE_KEY = "norway-coffee-erp-demo-v6";
-const STORAGE_VERSION = 6 as const;
+const STORAGE_KEY = "norway-coffee-erp-demo-v7";
+const STORAGE_VERSION = 7 as const;
 
 interface PersistedState {
   version: typeof STORAGE_VERSION;
@@ -107,6 +111,7 @@ interface PersistedState {
   quotations: Quotation[];
   quotationDetails: QuotationDetail[];
   stockMoves: StockMove[];
+  stockReservations: StockReservation[];
   receivables: Receivable[];
   payments: Payment[];
   orderAudits: OrderAuditEntry[];
@@ -124,6 +129,10 @@ interface AppContextValue {
   quotationDetails: QuotationDetail[];
   orderDetails: SalesOrderDetail[];
   stockMoves: StockMove[];
+  stockReservations: StockReservation[];
+  setProducts: Dispatch<SetStateAction<Product[]>>;
+  setStockMoves: Dispatch<SetStateAction<StockMove[]>>;
+  setStockReservations: Dispatch<SetStateAction<StockReservation[]>>;
   receivables: Receivable[];
   payments: Payment[];
   kpi: ReturnType<typeof computeKpi>;
@@ -230,6 +239,7 @@ function cloneSeed(): Omit<PersistedState, "version"> {
     quotations: initialQuotations.map((q) => ({ ...q })),
     quotationDetails: initialQuotationDetails.map((d) => ({ ...d })),
     stockMoves: initialStockMoves.map((m) => ({ ...m })),
+    stockReservations: [],
     receivables: initialReceivables.map((r) => ({ ...r })),
     payments: initialPayments.map((p) => ({ ...p })),
     orderAudits: [],
@@ -337,6 +347,14 @@ function migrateFromLegacy(parsed: {
     quotations,
     quotationDetails,
     stockMoves,
+    stockReservations: Array.isArray(
+      (parsed as { stockReservations?: unknown }).stockReservations,
+    )
+      ? (
+          (parsed as { stockReservations: StockReservation[] })
+            .stockReservations as StockReservation[]
+        ).map((r) => ({ ...r }))
+      : [],
     receivables,
     payments,
     orderAudits: Array.isArray((parsed as { orderAudits?: unknown }).orderAudits)
@@ -355,8 +373,8 @@ function readStorage(): PersistedState | null {
       window.localStorage.getItem("norway-coffee-erp-demo-v4");
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { version?: number; orders?: unknown[] };
-    // v6＝第 8 週正式狀態機；舊版強制重載完整種子
-    if (parsed?.version !== 6) {
+    // v7＝第 10 週庫存保留；舊版強制重載完整種子
+    if (parsed?.version !== 7) {
       return null;
     }
     return migrateFromLegacy(parsed);
@@ -385,6 +403,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     seed.quotationDetails,
   );
   const [stockMoves, setStockMoves] = useState<StockMove[]>(seed.stockMoves);
+  const [stockReservations, setStockReservations] = useState<StockReservation[]>(
+    seed.stockReservations ?? [],
+  );
   const [receivables, setReceivables] = useState<Receivable[]>(
     seed.receivables,
   );
@@ -400,6 +421,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const receivablesRef = useRef(receivables);
   const paymentsRef = useRef(payments);
   const stockMovesRef = useRef(stockMoves);
+  const stockReservationsRef = useRef(stockReservations);
   const usersRef = useRef(users);
   const currentUserIdRef = useRef(currentUserId);
   ordersRef.current = orders;
@@ -409,6 +431,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   receivablesRef.current = receivables;
   paymentsRef.current = payments;
   stockMovesRef.current = stockMoves;
+  stockReservationsRef.current = stockReservations;
   usersRef.current = users;
   currentUserIdRef.current = currentUserId;
   const [hydrated, setHydrated] = useState(false);
@@ -435,6 +458,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setQuotations(scanned.quotations);
       setQuotationDetails(stored.quotationDetails.map((d) => ({ ...d })));
       setStockMoves(stored.stockMoves.map((m) => ({ ...m })));
+      setStockReservations(
+        (stored.stockReservations ?? []).map((r) => ({ ...r })),
+      );
       setReceivables(stored.receivables.map((r) => ({ ...r })));
       setPayments(stored.payments.map((p) => ({ ...p })));
       setOrderAudits((stored.orderAudits ?? []).map((a) => ({ ...a })));
@@ -468,6 +494,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotations,
       quotationDetails,
       stockMoves,
+      stockReservations,
       receivables,
       payments,
       orderAudits,
@@ -484,6 +511,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quotations,
     quotationDetails,
     stockMoves,
+    stockReservations,
     receivables,
     orderAudits,
     payments,
@@ -505,6 +533,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setQuotations(parsed.quotations.map((q) => ({ ...q })));
         setQuotationDetails(parsed.quotationDetails.map((d) => ({ ...d })));
         setStockMoves(parsed.stockMoves.map((m) => ({ ...m })));
+        setStockReservations(
+          (parsed.stockReservations ?? []).map((r) => ({ ...r })),
+        );
         setReceivables(parsed.receivables.map((r) => ({ ...r })));
         setPayments(parsed.payments.map((p) => ({ ...p })));
         setCurrentUserId(parsed.currentUserId);
@@ -695,13 +726,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const details = orderDetailsRef.current.filter(
         (d) => d.Order_ID === orderId,
       );
-      const result = confirmOrderRule(order, details);
-      if (!result.ok || !result.order) return result;
+      const result = confirmOrderWithReserve(
+        order,
+        details,
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+      );
+      if (!result.ok || !result.order) {
+        return { ok: false, message: result.message };
+      }
       ordersRef.current = ordersRef.current.map((o) =>
         o.Order_ID === orderId ? result.order! : o,
       );
       setOrders(ordersRef.current);
-      return result;
+      if (result.reservations) {
+        stockReservationsRef.current = result.reservations;
+        setStockReservations(result.reservations);
+      }
+      return { ok: true, message: result.message, order: result.order, details };
     },
     [],
   );
@@ -727,7 +770,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderAuditsRef.current = [...orderAuditsRef.current, result.audit];
         setOrderAudits(orderAuditsRef.current);
       }
-      return result;
+      const released = releaseOrderReserves(
+        orderId,
+        stockReservationsRef.current,
+      );
+      stockReservationsRef.current = released.reservations;
+      setStockReservations(released.reservations);
+      return {
+        ...result,
+        message:
+          (result.message ?? "訂單已取消。") +
+          (released.releasedQty
+            ? ` 已釋放保留 ${released.releasedQty}（現有量不變）。`
+            : ""),
+      };
     },
     [activeUser],
   );
@@ -753,7 +809,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderAuditsRef.current = [...orderAuditsRef.current, result.audit];
         setOrderAudits(orderAuditsRef.current);
       }
-      return result;
+      const released = releaseOrderReserves(
+        orderId,
+        stockReservationsRef.current,
+      );
+      stockReservationsRef.current = released.reservations;
+      setStockReservations(released.reservations);
+      return {
+        ...result,
+        message:
+          (result.message ?? "已重開為草稿。") +
+          (released.releasedQty
+            ? ` 已先解除保留 ${released.releasedQty}（現有量不變）。`
+            : ""),
+      };
     },
     [activeUser],
   );
@@ -770,6 +839,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderDetails,
         products,
         stockMoves,
+        stockReservations,
       );
       if (!deduct.ok || !deduct.products || !deduct.moves || !deduct.order) {
         return { ok: false, message: deduct.message ?? "扣庫失敗。" };
@@ -778,6 +848,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const arRes = ensureReceivableForOrder(shipped, receivables);
       setProducts(deduct.products);
       setStockMoves(deduct.moves);
+      if (deduct.reservations) setStockReservations(deduct.reservations);
       setOrders((prev) =>
         prev.map((o) => (o.Order_ID === orderId ? shipped : o)),
       );
@@ -787,7 +858,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         message: `已出貨並扣庫${arRes.receivable ? `；應收 ${arRes.receivable.AR_ID}` : ""}`,
       };
     },
-    [orders, orderDetails, products, stockMoves, receivables],
+    [orders, orderDetails, products, stockMoves, stockReservations, receivables],
   );
 
   const unshipOrder = useCallback(
@@ -801,6 +872,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         orderDetails,
         products,
         stockMoves,
+        stockReservations,
       );
       if (!restore.ok || !restore.products || !restore.moves || !restore.order) {
         return { ok: false, message: restore.message ?? "還原庫存失敗。" };
@@ -808,12 +880,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setReceivables(voidRes.receivables ?? receivables);
       setProducts(restore.products);
       setStockMoves(restore.moves);
+      if (restore.reservations) setStockReservations(restore.reservations);
       setOrders((prev) =>
         prev.map((o) => (o.Order_ID === orderId ? restore.order! : o)),
       );
       return { ok: true, message: "已取消出貨並還原庫存。" };
     },
-    [orders, orderDetails, products, stockMoves, receivables, payments],
+    [orders, orderDetails, products, stockMoves, stockReservations, receivables, payments],
   );
 
   const setOrderStatus = useCallback(
@@ -845,13 +918,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         stockMoves,
         currentUser.Role,
         note,
+        stockReservations,
       );
       if (!result.ok || !result.products || !result.moves) return result;
       setProducts(result.products);
       setStockMoves(result.moves);
+      if (result.reservations) setStockReservations(result.reservations);
       return result;
     },
-    [products, stockMoves, currentUser.Role],
+    [products, stockMoves, stockReservations, currentUser.Role],
   );
 
   const recordArPayment = useCallback(
@@ -1101,6 +1176,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       orderDetailsRef.current = next.orderDetails;
       productsRef.current = next.products;
       stockMovesRef.current = next.stockMoves;
+      stockReservationsRef.current = next.stockReservations ?? [];
       receivablesRef.current = next.receivables;
       paymentsRef.current = next.payments;
       orderAuditsRef.current = next.orderAudits ?? [];
@@ -1113,6 +1189,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setQuotations(next.quotations);
       setQuotationDetails(next.quotationDetails);
       setStockMoves(next.stockMoves);
+      setStockReservations(next.stockReservations ?? []);
       setReceivables(next.receivables);
       setPayments(next.payments);
       setOrderAudits(next.orderAudits ?? []);
@@ -1156,6 +1233,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quotationDetails,
     orderDetails,
     stockMoves,
+    stockReservations,
+    setProducts,
+    setStockMoves,
+    setStockReservations,
     receivables,
     payments,
     orderAudits,

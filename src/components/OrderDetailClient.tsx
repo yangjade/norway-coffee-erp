@@ -260,6 +260,12 @@ export default function OrderDetailClient() {
         </div>
 
         {isDraft && (
+          <Notice kind="info">
+            確認訂單會保留庫存（保留↑、可用↓），現有量不會變。任一商品不夠就整張維持草稿、不會半保留。
+          </Notice>
+        )}
+
+        {isDraft && (
           <div className="no-print panel flex flex-wrap items-center gap-3 px-4 py-3">
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -374,12 +380,13 @@ export default function OrderDetailClient() {
               <button
                 type="button"
                 className="btn-primary"
+                title="確認後會保留庫存，不會扣現有量"
                 onClick={() => {
                   const r = confirmSalesOrder(order.Order_ID);
-                  toastResult(r.ok, r.message, "無法確認");
+                  toastResult(r.ok, r.message, "無法確認（整單未保留）");
                 }}
               >
-                確認訂單
+                確認訂單（會保留、不扣現有）
               </button>
               <input
                 className="field text-xs"

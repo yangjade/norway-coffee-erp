@@ -3,65 +3,136 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useApp } from "@/lib/app-context";
-import { formatTwd } from "@/lib/format";
+import {
+  alertCounts,
+  buildInventoryRows,
+  createStockMove,
+  postStockMove,
+  setSafetyStock,
+} from "@/lib/inventory-rules";
 import { Notice, PageHeader } from "@/components/Notice";
+import type { StockMoveType } from "@/lib/types";
 
 export default function InventoryPage() {
   const {
     products,
     stockMoves,
-    adjustInventory,
+    stockReservations,
+    setProducts,
+    setStockMoves,
     currentUser,
-    productName,
     hydrated,
   } = useApp();
   const isAdmin = currentUser.Role === "Admin";
   const [q, setQ] = useState("");
+  const [alertFilter, setAlertFilter] = useState<"全部" | "正常" | "低庫存" | "缺貨">(
+    "全部",
+  );
   const [flash, setFlash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [deltas, setDeltas] = useState<Record<string, string>>({});
+  const [moveProduct, setMoveProduct] = useState("P002");
+  const [moveType, setMoveType] = useState<StockMoveType>("入庫");
+  const [moveQty, setMoveQty] = useState("10");
+  const [countQty, setCountQty] = useState("");
+  const [safetyEdits, setSafetyEdits] = useState<Record<string, string>>({});
 
   const rows = useMemo(() => {
+    const all = buildInventoryRows(products, stockMoves, stockReservations);
     const needle = q.trim().toLowerCase();
-    return products
-      .filter((p) => {
-        if (!needle) return true;
-        return (
-          p.Product_ID.toLowerCase().includes(needle) ||
-          p.Product_Name.toLowerCase().includes(needle) ||
-          p.Category.toLowerCase().includes(needle)
-        );
-      })
-      .sort((a, b) => a.Product_ID.localeCompare(b.Product_ID));
-  }, [products, q]);
+    return all.filter((r) => {
+      if (alertFilter !== "全部" && r.Alert !== alertFilter) return false;
+      if (!needle) return true;
+      return (
+        r.Product_ID.toLowerCase().includes(needle) ||
+        r.Product_Name.toLowerCase().includes(needle)
+      );
+    });
+  }, [products, stockMoves, stockReservations, q, alertFilter]);
 
-  const recentMoves = useMemo(
+  const counts = useMemo(
+    () => alertCounts(buildInventoryRows(products, stockMoves, stockReservations)),
+    [products, stockMoves, stockReservations],
+  );
+
+  const drafts = useMemo(
+    () => stockMoves.filter((m) => (m.Status ?? "Posted") === "Draft"),
+    [stockMoves],
+  );
+
+  const recent = useMemo(
     () =>
       [...stockMoves]
         .sort((a, b) => {
           const d = b.Move_Date.localeCompare(a.Move_Date);
           return d !== 0 ? d : b.Move_ID.localeCompare(a.Move_ID);
         })
-        .slice(0, 12),
+        .slice(0, 15),
     [stockMoves],
   );
 
-  function applyDelta(productId: string) {
+  function runCreate(asDraft: boolean) {
     setFlash(null);
     setError(null);
-    const raw = deltas[productId]?.trim() ?? "";
-    const n = Number.parseInt(raw, 10);
-    if (!Number.isInteger(n) || n === 0) {
-      setError("請輸入非零整數調整量（正數入庫、負數出庫）。");
-      return;
-    }
-    const result = adjustInventory(productId, n);
+    const n = Number.parseInt(moveQty, 10);
+    const counted =
+      moveType === "盤點調整" ? Number.parseInt(countQty, 10) : undefined;
+    const result = createStockMove(
+      {
+        productId: moveProduct,
+        moveType,
+        qty: moveType === "盤點調整" ? 0 : n,
+        role: currentUser.Role,
+        countedQty: counted,
+        asDraft,
+      },
+      products,
+      stockMoves,
+      stockReservations,
+    );
     if (!result.ok) {
-      setError(result.message ?? "調整失敗");
+      setError(result.message ?? "失敗");
+      if (result.products) setProducts(result.products);
+      if (result.moves) setStockMoves(result.moves);
       return;
     }
-    setFlash(result.message ?? "已調整");
-    setDeltas((prev) => ({ ...prev, [productId]: "" }));
+    if (result.products) setProducts(result.products);
+    if (result.moves) setStockMoves(result.moves);
+    setFlash(result.message ?? "完成");
+  }
+
+  function runPost(moveId: string) {
+    setFlash(null);
+    setError(null);
+    const result = postStockMove(
+      moveId,
+      currentUser.Role,
+      products,
+      stockMoves,
+      stockReservations,
+    );
+    if (!result.ok) {
+      setError(result.message ?? "過帳失敗");
+      if (result.products) setProducts(result.products);
+      if (result.moves) setStockMoves(result.moves);
+      return;
+    }
+    if (result.products) setProducts(result.products);
+    if (result.moves) setStockMoves(result.moves);
+    setFlash(result.message ?? "已過帳");
+  }
+
+  function runSafety(productId: string) {
+    setFlash(null);
+    setError(null);
+    const raw = safetyEdits[productId] ?? "";
+    const n = Number.parseInt(raw, 10);
+    const result = setSafetyStock(productId, n, products, currentUser.Role);
+    if (!result.ok) {
+      setError(result.message ?? "設定失敗");
+      return;
+    }
+    if (result.products) setProducts(result.products);
+    setFlash(result.message ?? "已設定");
   }
 
   if (!hydrated) {
@@ -74,109 +145,127 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="space-y-5 animate-rise">
+    <div
+      className="space-y-5 animate-rise"
+      data-week10-marker="week10-inventory-20261118"
+    >
       <PageHeader
         title="庫存"
-        description="商品現有量 On_Hand · 出貨自動扣庫 · 教學級單倉（第 10 週）"
+        description="WH01 · 現有／保留／可用 · 確認訂單只保留不扣現有"
         actions={
-          <Link href="/products/" className="btn-ghost text-sm">
-            商品主檔
+          <Link href="/acceptance/" className="btn-ghost text-sm">
+            驗收區
           </Link>
         }
       />
 
       <Notice kind="info">
-        於「出貨」確認或訂單改為「已出貨」時會依明細 Qty 扣減 On_Hand 並寫入異動；改回非出貨狀態會還原（若應收已收款則阻擋）。Admin
-        可手動調整；Staff 僅查閱。無多倉／調撥／安全存量警報。
+        可用＝現有−保留。確認訂單：保留↑、可用↓、現有不變。出貨（第11週）才扣現有。低庫存仍可接單。
+        低庫存 {counts.low} · 缺貨 {counts.out} · 正常 {counts.normal}
       </Notice>
 
-      {flash && (
-        <div className="animate-success-flash">
-          <Notice kind="info">{flash}</Notice>
-        </div>
-      )}
+      {flash && <Notice kind="info">{flash}</Notice>}
       {error && (
-        <Notice kind="error" title="無法調整">
+        <Notice kind="error" title="無法完成">
           {error}
         </Notice>
       )}
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="block min-w-[12rem] flex-1 text-xs text-[var(--muted)]">
-          搜尋商品
+          搜尋
           <input
             className="field mt-1 w-full text-sm"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="編號／名稱／分類"
+            placeholder="商品編號／名稱"
           />
+        </label>
+        <label className="block text-xs text-[var(--muted)]">
+          警示
+          <select
+            className="field mt-1 text-sm"
+            value={alertFilter}
+            onChange={(e) =>
+              setAlertFilter(e.target.value as typeof alertFilter)
+            }
+          >
+            <option value="全部">全部</option>
+            <option value="正常">正常</option>
+            <option value="低庫存">低庫存</option>
+            <option value="缺貨">缺貨</option>
+          </select>
         </label>
       </div>
 
       {rows.length === 0 ? (
-        <Notice kind="empty">沒有符合的商品</Notice>
+        <Notice kind="empty">沒有符合的庫存列</Notice>
       ) : (
         <div className="table-shell">
           <table>
             <thead>
               <tr>
-                <th>Product_ID</th>
-                <th>名稱</th>
-                <th>分類</th>
+                <th>商品</th>
+                <th>倉</th>
                 <th>單位</th>
-                <th>On_Hand</th>
-                <th>牌價</th>
-                <th>啟用</th>
-                {isAdmin ? <th>手動調整</th> : null}
+                <th>現有</th>
+                <th>保留</th>
+                <th>可用</th>
+                <th>安全</th>
+                <th>警示</th>
+                {isAdmin ? <th>安全量</th> : null}
               </tr>
             </thead>
             <tbody>
-              {rows.map((p) => (
-                <tr key={p.Product_ID}>
+              {rows.map((r) => (
+                <tr key={r.Product_ID}>
                   <td>
-                    <Link
-                      href={`/products/${p.Product_ID}/`}
-                      className="font-mono text-xs text-[var(--brand)] underline-offset-2 hover:underline"
+                    <span className="font-mono text-xs">{r.Product_ID}</span>
+                    <div className="text-sm">{r.Product_Name}</div>
+                    {r.Hold_Allocation ? (
+                      <div className="text-xs text-[var(--danger)]">待處理異常</div>
+                    ) : null}
+                  </td>
+                  <td className="font-mono text-xs">{r.Warehouse_ID}</td>
+                  <td>{r.Unit}</td>
+                  <td className="tabular-nums font-medium">{r.On_Hand}</td>
+                  <td className="tabular-nums">{r.Reserved}</td>
+                  <td className="tabular-nums font-medium">{r.Available}</td>
+                  <td className="tabular-nums">{r.Safety_Stock}</td>
+                  <td>
+                    <span
+                      className={
+                        r.Alert === "缺貨"
+                          ? "text-[var(--danger)]"
+                          : r.Alert === "低庫存"
+                            ? "text-amber-700"
+                            : "text-[var(--muted)]"
+                      }
                     >
-                      {p.Product_ID}
-                    </Link>
+                      {r.Alert}
+                    </span>
                   </td>
-                  <td>{p.Product_Name}</td>
-                  <td>{p.Category}</td>
-                  <td>{p.Unit}</td>
-                  <td
-                    className={`tabular-nums font-medium ${
-                      p.On_Hand <= 5 ? "text-[var(--danger)]" : ""
-                    }`}
-                  >
-                    {p.On_Hand}
-                  </td>
-                  <td className="tabular-nums">
-                    NT$ {formatTwd(p.List_Price)}
-                  </td>
-                  <td>{p.Is_Active ? "啟用" : "停用"}</td>
                   {isAdmin ? (
                     <td>
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="flex items-center gap-1">
                         <input
-                          className="field w-20 text-xs"
-                          inputMode="numeric"
-                          placeholder="+/-"
-                          aria-label={`調整 ${p.Product_ID}`}
-                          value={deltas[p.Product_ID] ?? ""}
+                          className="field w-16 text-sm"
+                          value={
+                            safetyEdits[r.Product_ID] ?? String(r.Safety_Stock)
+                          }
                           onChange={(e) =>
-                            setDeltas((prev) => ({
+                            setSafetyEdits((prev) => ({
                               ...prev,
-                              [p.Product_ID]: e.target.value,
+                              [r.Product_ID]: e.target.value,
                             }))
                           }
                         />
                         <button
                           type="button"
                           className="btn-ghost text-xs"
-                          onClick={() => applyDelta(p.Product_ID)}
+                          onClick={() => runSafety(r.Product_ID)}
                         >
-                          套用
+                          設
                         </button>
                       </div>
                     </td>
@@ -188,63 +277,129 @@ export default function InventoryPage() {
         </div>
       )}
 
-      <section className="space-y-2">
-        <h2 className="font-display text-sm tracking-[0.08em] text-[var(--wood)]">
-          最近庫存異動
-        </h2>
-        {recentMoves.length === 0 ? (
-          <Notice kind="empty">尚無異動紀錄</Notice>
-        ) : (
-          <div className="table-shell">
-            <table>
-              <thead>
-                <tr>
-                  <th>Move_ID</th>
-                  <th>日期</th>
-                  <th>商品</th>
-                  <th>數量</th>
-                  <th>原因</th>
-                  <th>參照訂單</th>
-                  <th>備註</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentMoves.map((m) => (
-                  <tr key={m.Move_ID}>
-                    <td className="font-mono text-xs">{m.Move_ID}</td>
-                    <td>{m.Move_Date}</td>
-                    <td>
-                      {m.Product_ID} {productName(m.Product_ID)}
-                    </td>
-                    <td
-                      className={`tabular-nums ${
-                        m.Qty < 0 ? "text-[var(--danger)]" : "text-[var(--brand)]"
-                      }`}
-                    >
-                      {m.Qty > 0 ? `+${m.Qty}` : m.Qty}
-                    </td>
-                    <td>{m.Reason}</td>
-                    <td>
-                      {m.Ref_Order_ID ? (
-                        <Link
-                          href={`/orders/${m.Ref_Order_ID}/`}
-                          className="font-mono text-xs text-[var(--brand)] underline-offset-2 hover:underline"
-                        >
-                          {m.Ref_Order_ID}
-                        </Link>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="text-xs text-[var(--muted)]">
-                      {m.Note || "—"}
-                    </td>
-                  </tr>
+      <section className="space-y-3">
+        <h2 className="font-display text-lg text-[var(--brand-deep)]">入出庫／盤點</h2>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-xs text-[var(--muted)]">
+            商品
+            <select
+              className="field mt-1 text-sm"
+              value={moveProduct}
+              onChange={(e) => setMoveProduct(e.target.value)}
+            >
+              {products
+                .filter((p) => p.Is_Active)
+                .map((p) => (
+                  <option key={p.Product_ID} value={p.Product_ID}>
+                    {p.Product_ID} {p.Product_Name}
+                  </option>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+            </select>
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            類型
+            <select
+              className="field mt-1 text-sm"
+              value={moveType}
+              onChange={(e) => setMoveType(e.target.value as StockMoveType)}
+            >
+              <option value="期初">期初</option>
+              <option value="入庫">入庫</option>
+              <option value="出庫">出庫（非銷售）</option>
+              <option value="盤點調整">盤點調整</option>
+            </select>
+          </label>
+          {moveType === "盤點調整" ? (
+            <label className="text-xs text-[var(--muted)]">
+              實盤量
+              <input
+                className="field mt-1 w-24 text-sm"
+                value={countQty}
+                onChange={(e) => setCountQty(e.target.value)}
+              />
+            </label>
+          ) : (
+            <label className="text-xs text-[var(--muted)]">
+              數量（正整數）
+              <input
+                className="field mt-1 w-24 text-sm"
+                value={moveQty}
+                onChange={(e) => setMoveQty(e.target.value)}
+              />
+            </label>
+          )}
+          <button type="button" className="btn-ghost text-sm" onClick={() => runCreate(true)}>
+            存草稿
+          </button>
+          {isAdmin ? (
+            <button type="button" className="btn-primary text-sm" onClick={() => runCreate(false)}>
+              直接過帳
+            </button>
+          ) : (
+            <span className="text-xs text-[var(--muted)]">Staff 可建草稿；過帳需 Admin</span>
+          )}
+        </div>
+      </section>
+
+      {drafts.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-sm font-medium">待過帳草稿</h2>
+          <ul className="space-y-1 text-sm">
+            {drafts.map((m) => (
+              <li key={m.Move_ID} className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs">{m.Move_ID}</span>
+                <span>
+                  {m.Move_Type ?? m.Reason} {m.Product_ID} {m.Qty > 0 ? "+" : ""}
+                  {m.Qty}
+                </span>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={() => runPost(m.Move_ID)}
+                  >
+                    過帳
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium">異動紀錄</h2>
+        <div className="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>編號</th>
+                <th>來源</th>
+                <th>商品</th>
+                <th>類型</th>
+                <th>數量</th>
+                <th>狀態</th>
+                <th>日期</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((m) => (
+                <tr key={m.Move_ID}>
+                  <td className="font-mono text-xs">{m.Move_ID}</td>
+                  <td className="font-mono text-xs">{m.Source_Doc_ID ?? "—"}</td>
+                  <td>{m.Product_ID}</td>
+                  <td>{m.Move_Type ?? m.Reason}</td>
+                  <td className="tabular-nums">
+                    {m.Qty > 0 ? "+" : ""}
+                    {m.Qty}
+                  </td>
+                  <td>{m.Status ?? "Posted"}</td>
+                  <td>{m.Move_Date}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );
