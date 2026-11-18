@@ -7,7 +7,76 @@ import { WEEK8_BUSINESS_DATE } from "@/lib/order-rules";
 
 type Row = { id: string; label: string; result: string; pass?: boolean };
 
-/** 第 8 週驗收 01–12（同步讀寫透過 context refs） */
+/** S01–S13：要測什麼／過了會怎樣（高於截圖的課堂可跑體驗） */
+const SCENARIO_HELP: { id: string; label: string; help: string }[] = [
+  {
+    id: "S01",
+    label: "有效已接受報價轉單",
+    help: "測：已接受報價一鍵轉單。過了：得到草稿單，明細 2 行、未稅 7560。",
+  },
+  {
+    id: "S02",
+    label: "同報價連按／再轉",
+    help: "測：同一報價連按轉單。過了：不會多開第二張，仍指回同一訂單。",
+  },
+  {
+    id: "S03",
+    label: "數量 0／-1 拒存",
+    help: "測：草稿把數量改成 0 或 -1。過了：拒絕儲存，原數量不動。",
+  },
+  {
+    id: "S04",
+    label: "承諾早於訂單日拒確認",
+    help: "測：承諾日早於訂單日就按確認。過了：擋下，無法確認。",
+  },
+  {
+    id: "S05",
+    label: "晚交未同意可存不可確認",
+    help: "測：承諾晚於期望且未勾同意。過了：可存草稿，但確認失敗。",
+  },
+  {
+    id: "S06",
+    label: "逾期 Accepted 拒轉",
+    help: "測：有效期已過的 Accepted 報價轉單。過了：拒絕轉單。",
+  },
+  {
+    id: "S07",
+    label: "未接受報價拒轉",
+    help: "測：未接受狀態的報價轉單。過了：拒絕轉單。",
+  },
+  {
+    id: "S08",
+    label: "Staff 改／取消已確認拒",
+    help: "測：Staff 改已確認單或取消。過了：兩種操作都被擋。",
+  },
+  {
+    id: "S09",
+    label: "Admin 重開改 12 再確認＝8694",
+    help: "測：Admin 重開→改量 12→再確認。過了：含稅總額 8694，有重開稽核。",
+  },
+  {
+    id: "S10",
+    label: "主檔改 700 訂單單價仍 600",
+    help: "測：改商品主檔牌價。過了：訂單快照單價仍 600，不被帶動。",
+  },
+  {
+    id: "S11",
+    label: "Admin 取消另一確認單",
+    help: "測：Admin 取消另一張已確認單。過了：變已取消，且不能再確認。",
+  },
+  {
+    id: "S12",
+    label: "編號／客戶／狀態可查",
+    help: "測：用訂單號、客戶、狀態找單。過了：三種查詢都能命中。",
+  },
+  {
+    id: "S13",
+    label: "勾選改期同意後可確認",
+    help: "測：晚交草稿勾「改期同意」再確認。過了：變成已確認，且未扣庫。",
+  },
+];
+
+/** 第 8 週驗收 S01–S13 */
 export function Week8Acceptance() {
   const router = useRouter();
   const app = useApp();
@@ -40,7 +109,7 @@ export function Week8Acceptance() {
     });
     const orderId = r01.order?.Order_ID ?? "";
     setRow(
-      "01",
+      "S01",
       "有效已接受報價轉單",
       Boolean(
         r01.ok &&
@@ -55,7 +124,7 @@ export function Week8Acceptance() {
     const r02a = app.convertAcceptedQuote("QT-20261118-001");
     const r02b = app.convertAcceptedQuote("QT-20261118-001");
     setRow(
-      "02",
+      "S02",
       "同報價連按／再轉",
       Boolean(
         r02a.order?.Order_ID === orderId &&
@@ -76,7 +145,7 @@ export function Week8Acceptance() {
     });
     const still = app.orderDetails.find((d) => d.Detail_ID === dP002!.Detail_ID);
     setRow(
-      "03",
+      "S03",
       "數量 0／-1 拒存",
       !r03a.ok && !r03b.ok && (still?.Qty ?? 0) === beforeQty,
       `${r03a.message}`,
@@ -92,14 +161,12 @@ export function Week8Acceptance() {
       deliveryAgreed: false,
     });
     setRow(
-      "04",
+      "S04",
       "承諾早於訂單日拒確認",
       Boolean(r04save.ok === false || !r04.ok),
       r04.message ?? r04save.message ?? "",
     );
 
-    // if promised before order date was rejected on save, that's also ok for 04
-    // restore for 05
     app.saveDraftOrder(orderId, {
       requestedDate: "2026-11-23",
       promisedDate: "2026-11-25",
@@ -112,7 +179,7 @@ export function Week8Acceptance() {
     });
     const r05conf = app.confirmSalesOrder(orderId);
     setRow(
-      "05",
+      "S05",
       "晚交未同意可存不可確認",
       Boolean(r05save.ok && !r05conf.ok),
       r05conf.message ?? "",
@@ -123,7 +190,7 @@ export function Week8Acceptance() {
       asOfDate: WEEK8_BUSINESS_DATE,
     });
     setRow(
-      "06",
+      "S06",
       "逾期 Accepted 拒轉",
       !r06.ok && app.orders.length === before06,
       r06.message ?? "",
@@ -134,7 +201,7 @@ export function Week8Acceptance() {
       asOfDate: WEEK8_BUSINESS_DATE,
     });
     setRow(
-      "07",
+      "S07",
       "未接受報價拒轉",
       !r07.ok && app.orders.length === before07,
       r07.message ?? "",
@@ -156,7 +223,7 @@ export function Week8Acceptance() {
     const r08cancel = app.cancelSalesOrder(orderId, "staff try");
     const st08 = app.orders.find((o) => o.Order_ID === orderId)?.Order_Status;
     setRow(
-      "08",
+      "S08",
       "Staff 改／取消已確認拒",
       !r08edit.ok && !r08cancel.ok && st08 === "Confirmed",
       `edit=${r08edit.message}; status=${st08}`,
@@ -179,7 +246,7 @@ export function Week8Acceptance() {
       (a) => a.Order_ID === orderId && a.Action === "重開",
     );
     setRow(
-      "09",
+      "S09",
       "Admin 重開改 12 再確認＝8694",
       Boolean(
         r09re.ok && r09save.ok && r09conf.ok && total09 === 8694 && hasAudit,
@@ -196,7 +263,7 @@ export function Week8Acceptance() {
     )!.Unit_Price;
     const list = app.products.find((p) => p.Product_ID === "P002")!.List_Price;
     setRow(
-      "10",
+      "S10",
       "主檔改 700 訂單單價仍 600",
       snap === 600 && snap2 === 600 && list === 700,
       `snapshot=${snap2}; list=${list}`,
@@ -209,13 +276,13 @@ export function Week8Acceptance() {
         !o.Stock_Deducted,
     );
     if (!other) {
-      setRow("11", "Admin 取消另一確認單", false, "找不到可取消單");
+      setRow("S11", "Admin 取消另一確認單", false, "找不到可取消單");
     } else {
       const r11 = app.cancelSalesOrder(other.Order_ID, "測試取消");
       const after = app.orders.find((o) => o.Order_ID === other.Order_ID);
       const re = app.confirmSalesOrder(other.Order_ID);
       setRow(
-        "11",
+        "S11",
         "Admin 取消另一確認單",
         Boolean(r11.ok && after?.Order_Status === "Cancelled" && !re.ok),
         `${other.Order_ID}→${after?.Order_Status}`,
@@ -228,24 +295,58 @@ export function Week8Acceptance() {
     const byCust = app.orders.some((o) => o.Customer_ID === "C001");
     const byStatus = app.orders.some((o) => o.Order_Status === "Confirmed");
     setRow(
-      "12",
+      "S12",
       "編號／客戶／狀態可查",
       byId && byCust && byStatus,
       `ok=${byId && byCust && byStatus}`,
     );
 
+    // S13：獨立晚交草稿 → 勾同意 → 確認成功且未扣庫
+    app.switchUser("U001");
+    app.resetDemoData();
+    const r13c = app.convertAcceptedQuote("QT-20261118-001", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-25",
+    });
+    const id13 = r13c.order?.Order_ID ?? "";
+    app.saveDraftOrder(id13, {
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-25",
+      deliveryAgreed: false,
+    });
+    const blocked = app.confirmSalesOrder(id13);
+    app.saveDraftOrder(id13, { deliveryAgreed: true });
+    const allowed = app.confirmSalesOrder(id13);
+    const after13 = app.orders.find((o) => o.Order_ID === id13);
+    setRow(
+      "S13",
+      "勾選改期同意後可確認",
+      Boolean(
+        !blocked.ok &&
+          allowed.ok &&
+          after13?.Order_Status === "Confirmed" &&
+          !after13.Stock_Deducted,
+      ),
+      `block=${blocked.message}; stock=${after13?.Stock_Deducted}`,
+    );
+
     setBusy(false);
   }
+
+  const passCount = rows.filter((r) => r.pass).length;
+  const done = rows.length > 0;
 
   return (
     <div
       className="space-y-3 border-t border-[var(--border)] px-4 py-4 sm:px-5"
-      data-week8="acceptance-01-12"
+      data-week8="acceptance-s01-s13"
       data-week8-marker="week8-official-20261118"
+      id="acceptance-s01-s13"
     >
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">
-          第 8 週驗收測試 01–12
+          銷售驗收 S01–S13（第 8 週）
         </p>
         <button
           type="button"
@@ -253,7 +354,7 @@ export function Week8Acceptance() {
           disabled={busy}
           onClick={runAll}
         >
-          {busy ? "測試中…" : "一鍵跑 01–12"}
+          {busy ? "測試中…" : "一鍵跑 S01–S13"}
         </button>
         <button
           type="button"
@@ -262,22 +363,63 @@ export function Week8Acceptance() {
         >
           手動轉單
         </button>
+        <button
+          type="button"
+          className="btn-ghost text-xs"
+          onClick={() => router.push("/orders/")}
+        >
+          訂單列表
+        </button>
       </div>
       <p className="text-[11px] text-[var(--muted)]">
-        會重設樣本後依序操作；案例 7,560／改量 8,694。確認不扣庫。
+        會重設樣本後依序操作；案例 7,560／改量 8,694。確認不扣庫。S13 驗證晚交勾同意後可確認。
       </p>
-      {rows.length > 0 && (
-        <ul className="space-y-1 text-xs">
-          {rows.map((r) => (
-            <li
-              key={r.id}
-              className={r.pass ? "text-[var(--brand-deep)]" : "text-[var(--danger)]"}
-            >
-              <span className="font-mono">{r.id}</span> {r.label} — {r.result}
-            </li>
-          ))}
-        </ul>
+      {done && (
+        <p
+          className={`rounded-md px-3 py-2 text-sm font-medium ${
+            passCount === 13
+              ? "bg-[var(--brand-soft)] text-[var(--brand-deep)]"
+              : "bg-[var(--danger)]/10 text-[var(--danger)]"
+          }`}
+        >
+          結果：{passCount}／13 通過
+          {passCount === 13 ? " · 可課堂演示" : " · 請展開失敗項查看原因"}
+        </p>
       )}
+      <ol className="space-y-2 text-xs">
+        {SCENARIO_HELP.map((s) => {
+          const r = rows.find((x) => x.id === s.id);
+          return (
+            <li
+              key={s.id}
+              className={`rounded-md border px-3 py-2 ${
+                r?.pass === false
+                  ? "border-[var(--danger)]/40 bg-[var(--danger)]/5"
+                  : r?.pass
+                    ? "border-[var(--brand)]/25 bg-[var(--brand-soft)]/30"
+                    : "border-[var(--border)] bg-[var(--surface)]"
+              }`}
+            >
+              <p className="font-medium text-[var(--ink)]">
+                <span className="font-mono text-[var(--brand)]">{s.id}</span>{" "}
+                {s.label}
+                {r && (
+                  <span
+                    className={
+                      r.pass
+                        ? "ml-2 text-[var(--brand-deep)]"
+                        : "ml-2 text-[var(--danger)]"
+                    }
+                  >
+                    · {r.result}
+                  </span>
+                )}
+              </p>
+              <p className="mt-0.5 text-[var(--muted)]">{s.help}</p>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }

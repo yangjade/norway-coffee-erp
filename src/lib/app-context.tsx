@@ -228,6 +228,10 @@ interface AppContextValue {
   resetDemoData: () => void;
   loadBaselineData: () => void;
   loadDemoData: () => void;
+  /** 匯出本機示範 JSON（含訂單／報價／庫存等） */
+  exportDemoJson: () => string;
+  /** 匯入示範 JSON；格式錯誤時拒絕並保留現況 */
+  importDemoJson: (raw: string) => { ok: boolean; message: string };
   clearOrders: () => void;
   simLoadError: boolean;
   setSimLoadError: (v: boolean) => void;
@@ -1337,6 +1341,52 @@ export function AppProvider({ children }: { children: ReactNode }) {
     applySeedLike(next);
   }, [applySeedLike]);
 
+  const exportDemoJson = useCallback(() => {
+    const state: PersistedState = {
+      version: STORAGE_VERSION,
+      users,
+      orders: ordersRef.current,
+      orderDetails: orderDetailsRef.current,
+      customers,
+      products: productsRef.current,
+      quotations,
+      quotationDetails,
+      stockMoves: stockMovesRef.current,
+      receivables: receivablesRef.current,
+      payments: paymentsRef.current,
+      orderAudits: orderAuditsRef.current,
+      currentUserId: currentUserIdRef.current,
+    };
+    return JSON.stringify(state, null, 2);
+  }, [users, customers, quotations, quotationDetails]);
+
+  const importDemoJson = useCallback(
+    (raw: string) => {
+      try {
+        const parsed = JSON.parse(raw) as { version?: number };
+        const migrated = migrateFromLegacy(
+          parsed as Parameters<typeof migrateFromLegacy>[0],
+        );
+        if (!migrated) {
+          return {
+            ok: false,
+            message: "無法匯入：請使用本系統匯出的 v6 JSON。",
+          };
+        }
+        const rest = { ...migrated };
+        delete (rest as { version?: number }).version;
+        applySeedLike(rest as Omit<PersistedState, "version">);
+        return {
+          ok: true,
+          message: `已匯入 ${migrated.orders.length} 張訂單、${migrated.quotations.length} 張報價。`,
+        };
+      } catch {
+        return { ok: false, message: "無法匯入：JSON 格式錯誤。" };
+      }
+    },
+    [applySeedLike],
+  );
+
   const value: AppContextValue = {
     currentUserId,
     currentUser,
@@ -1393,6 +1443,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     resetDemoData,
     loadBaselineData,
     loadDemoData,
+    exportDemoJson,
+    importDemoJson,
     clearOrders,
     simLoadError,
     setSimLoadError,

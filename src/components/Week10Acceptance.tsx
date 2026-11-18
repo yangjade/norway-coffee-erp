@@ -402,7 +402,9 @@ export function Week10Acceptance() {
     );
 
 
-    // I13：同商品兩列合計需求檢查
+    // I13–I16：各自獨立重置，避免沿用前面訂單狀態
+    app.resetDemoData();
+    app.switchUser("U001");
     app.prepareWeek10Lab();
     const open13 = app.createInventoryMove({
       productId: "P002",
@@ -411,33 +413,33 @@ export function Week10Acceptance() {
       asDraft: false,
       sourceDocId: "OP-I13",
     });
+    app.createInventoryMove({
+      productId: "P011",
+      moveType: "期初",
+      qty: 8,
+      asDraft: false,
+      sourceDocId: "OP-I13b",
+    });
     const qSplit = app.convertAcceptedQuote("QT-20261118-001", {
       asOfDate: WEEK8_BUSINESS_DATE,
       requestedDate: "2026-11-23",
       promisedDate: "2026-11-23",
     });
-    // 用既有 SO-A 明細不夠演示兩列；改以手動可用量：現有5，若需求10應缺5
     const idSplit = qSplit.order?.Order_ID ?? "";
-    if (idSplit) {
-      app.saveDraftOrder(idSplit, {
-        deliveryAgreed: true,
-        requestedDate: "2026-11-23",
-        promisedDate: "2026-11-23",
-      });
-      const failSplit = app.confirmSalesOrder(idSplit);
-      setRow(
-        "I13",
-        "同單需求合計檢查（不足則整單不保留）",
-        Boolean(open13.ok && !failSplit.ok && (failSplit.message ?? "").includes("缺")),
-        failSplit.message ?? open13.message ?? "",
-      );
-    } else {
-      setRow("I13", "同單需求合計檢查（不足則整單不保留）", false, "無訂單");
-    }
+    app.saveDraftOrder(idSplit, {
+      deliveryAgreed: true,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    const failSplit = app.confirmSalesOrder(idSplit);
+    setRow(
+      "I13",
+      "需求超過可用→整單不保留（合計檢查）",
+      Boolean(open13.ok && !failSplit.ok && (failSplit.message ?? "").includes("缺")),
+      failSplit.message ?? open13.message ?? "",
+    );
 
-    // I14：可用＝安全 → 低庫存
-    const low = app.inventorySnap("P002");
-    // 重置後走短路徑：直接設安全=可用
+    app.resetDemoData();
     app.prepareWeek10Lab();
     app.createInventoryMove({
       productId: "P002",
@@ -455,7 +457,7 @@ export function Week10Acceptance() {
       `avail=${s14?.Available} safety=${s14?.Safety_Stock} alert=${s14?.Alert}`,
     );
 
-    // I15：可用 0 → 缺貨
+    app.resetDemoData();
     app.prepareWeek10Lab();
     const s15 = app.inventorySnap("P002");
     setRow(
@@ -465,7 +467,8 @@ export function Week10Acceptance() {
       `alert=${s15?.Alert} avail=${s15?.Available}`,
     );
 
-    // I16：實盤低於保留 → 異常待處理
+    app.resetDemoData();
+    app.switchUser("U001");
     app.prepareWeek10Lab();
     app.createInventoryMove({
       productId: "P002",
@@ -501,7 +504,7 @@ export function Week10Acceptance() {
       asDraft: false,
       sourceDocId: "ST-I16",
     });
-    const holdProd = app.products.find((p) => p.Product_ID === "P002");
+    const holdProd = stHold.products?.find((p) => p.Product_ID === "P002");
     setRow(
       "I16",
       "實盤低於保留→異常並暫停",

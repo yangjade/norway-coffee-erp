@@ -7,7 +7,7 @@ import { ActivityTimeline } from "@/components/ActivityTimeline";
 import { Notice, PageHeader } from "@/components/Notice";
 import { PrimaryActionBar } from "@/components/PrimaryActionBar";
 import { PrintActions, PrintSheet } from "@/components/PrintSheet";
-import { StatusBadge } from "@/components/StatusBadge";
+import { OrderStatusProgress, StatusBadge } from "@/components/StatusBadge";
 import { useToast } from "@/components/ToastProvider";
 import { buildActivityFeed } from "@/lib/activity";
 import { useApp } from "@/lib/app-context";
@@ -165,112 +165,88 @@ export default function OrderDetailClient() {
           </div>
         )}
 
+        <div className="no-print panel flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <OrderStatusProgress status={order.Order_Status} />
+          <StatusBadge status={order.Order_Status} />
+        </div>
+
         {late && (
-          <div className="no-print">
-            <Notice kind="error" title="晚交提示">
-              承諾日 {order.Promised_Date} 晚於期望日 {order.Requested_Date}。
+          <div
+            className="no-print rounded-lg border-2 border-[var(--danger)] bg-[var(--danger)]/10 px-4 py-3 text-sm"
+            role="alert"
+          >
+            <p className="font-semibold text-[var(--danger)]">⚠ 晚交：承諾日晚於期望日</p>
+            <p className="mt-1 text-[var(--ink)]">
+              期望 {order.Requested_Date} → 承諾 {order.Promised_Date}。
               {order.Delivery_Agreed
-                ? "已記錄改期同意。"
-                : "尚未改期同意，不可確認。"}
-            </Notice>
+                ? "已勾選改期同意，可確認。"
+                : "請勾選下方「改期同意」後才能確認。"}
+            </p>
           </div>
         )}
 
-        <div className="panel grid gap-2 px-4 py-3.5 text-sm sm:grid-cols-2">
-          <p>
-            <span className="text-[var(--muted)]">訂單日</span> {order.Order_Date}
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">狀態</span>{" "}
-            <StatusBadge status={order.Order_Status} />
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">期望交貨日</span>{" "}
-            {isDraft ? (
-              <input
-                type="date"
-                className="field text-xs"
-                value={order.Requested_Date}
-                onChange={(e) =>
-                  saveDraftOrder(order.Order_ID, {
-                    requestedDate: e.target.value,
-                  })
-                }
-              />
-            ) : (
-              order.Requested_Date
-            )}
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">承諾交貨日</span>{" "}
-            {isDraft ? (
-              <input
-                type="date"
-                className="field text-xs"
-                value={order.Promised_Date}
-                onChange={(e) =>
-                  saveDraftOrder(order.Order_ID, {
-                    promisedDate: e.target.value,
-                  })
-                }
-              />
-            ) : (
-              <span data-field="Promised_Date">{order.Promised_Date}</span>
-            )}
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">客戶</span> {order.Customer_ID}{" "}
-            {customerName(order.Customer_ID)}
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">來源報價</span>{" "}
-            {order.Quote_ID ? (
-              <Link
-                href={`/quotations/${order.Quote_ID}/`}
-                className="font-mono text-xs text-[var(--brand)] underline"
-              >
-                {order.Quote_ID}
-              </Link>
-            ) : (
-              "—"
-            )}
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">收貨地址</span>{" "}
-            {order.Ship_To_Address || "—"}
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">付款條件</span>{" "}
-            {order.Payment_Terms_Snapshot || "—"}
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">未稅小計</span> NT${" "}
-            {formatTwd(order.Subtotal)}
-          </p>
-          <p>
-            <span className="text-[var(--muted)]">稅額 5%</span> NT${" "}
-            {formatTwd(order.Tax_Amount)}
-          </p>
-          <p className="sm:col-span-2">
-            <span className="text-[var(--muted)]">含稅總額</span>{" "}
-            <span className="font-semibold tabular-nums" data-field="Total_Amount">
-              NT$ {formatTwd(order.Total_Amount)}
-            </span>
-          </p>
-        </div>
+        <div className="panel space-y-4 px-4 py-3.5 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium tracking-wide text-[var(--muted)]">
+                期望交貨日
+              </span>
+              {isDraft ? (
+                <input
+                  type="date"
+                  className="field w-full text-sm"
+                  value={order.Requested_Date}
+                  onChange={(e) =>
+                    saveDraftOrder(order.Order_ID, {
+                      requestedDate: e.target.value,
+                    })
+                  }
+                />
+              ) : (
+                <p className="font-medium tabular-nums">{order.Requested_Date}</p>
+              )}
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[11px] font-medium tracking-wide text-[var(--muted)]">
+                承諾交貨日
+              </span>
+              {isDraft ? (
+                <input
+                  type="date"
+                  className="field w-full text-sm"
+                  value={order.Promised_Date}
+                  onChange={(e) =>
+                    saveDraftOrder(order.Order_ID, {
+                      promisedDate: e.target.value,
+                    })
+                  }
+                />
+              ) : (
+                <p className="font-medium tabular-nums" data-field="Promised_Date">
+                  {order.Promised_Date}
+                </p>
+              )}
+            </label>
+          </div>
 
-        {isDraft && (
-          <Notice kind="info">
-            按「確認」＝把貨留下來給這張單（保留↑、可用↓），貨還在倉庫所以現有不變。
-            若有任何一項不夠：整張維持草稿，並用白話告訴你缺哪幾項（不會半保留）。
-          </Notice>
-        )}
+          {isDraft && (
+            <Notice kind="info">
+              按「確認」＝把貨留下來給這張單（保留↑、可用↓），貨還在倉庫所以現有不變。
+              若有任何一項不夠：整張維持草稿，並用白話告訴你缺哪幾項（不會半保留）。
+            </Notice>
+          )}
 
-        {isDraft && (
-          <div className="no-print panel flex flex-wrap items-center gap-3 px-4 py-3">
-            <label className="flex items-center gap-2 text-sm">
+          {isDraft && (
+            <label
+              className={`flex cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 text-sm ${
+                late && !order.Delivery_Agreed
+                  ? "border-[var(--danger)] bg-[var(--danger)]/5"
+                  : "border-[var(--border)] bg-[var(--linen)]/40"
+              }`}
+            >
               <input
                 type="checkbox"
+                className="h-4 w-4 accent-[var(--brand)]"
                 checked={order.Delivery_Agreed}
                 onChange={(e) =>
                   saveDraftOrder(order.Order_ID, {
@@ -281,10 +257,60 @@ export default function OrderDetailClient() {
                   })
                 }
               />
-              改期同意 delivery_agreed
+              <span>
+                <span className="font-medium">改期同意</span>
+                <span className="ml-1 text-[var(--muted)]">
+                  （一鍵勾選；晚交時必勾才能確認）
+                </span>
+              </span>
             </label>
+          )}
+
+          <div className="grid gap-2 border-t border-[var(--border)] pt-3 sm:grid-cols-2">
+            <p>
+              <span className="text-[var(--muted)]">訂單日</span> {order.Order_Date}
+            </p>
+            <p>
+              <span className="text-[var(--muted)]">客戶</span> {order.Customer_ID}{" "}
+              {customerName(order.Customer_ID)}
+            </p>
+            <p>
+              <span className="text-[var(--muted)]">來源報價</span>{" "}
+              {order.Quote_ID ? (
+                <Link
+                  href={`/quotations/${order.Quote_ID}/`}
+                  className="font-mono text-xs text-[var(--brand)] underline"
+                >
+                  {order.Quote_ID}
+                </Link>
+              ) : (
+                "—"
+              )}
+            </p>
+            <p>
+              <span className="text-[var(--muted)]">收貨地址</span>{" "}
+              {order.Ship_To_Address || "—"}
+            </p>
+            <p>
+              <span className="text-[var(--muted)]">付款條件</span>{" "}
+              {order.Payment_Terms_Snapshot || "—"}
+            </p>
+            <p>
+              <span className="text-[var(--muted)]">未稅小計</span> NT${" "}
+              {formatTwd(order.Subtotal)}
+            </p>
+            <p>
+              <span className="text-[var(--muted)]">稅額 5%</span> NT${" "}
+              {formatTwd(order.Tax_Amount)}
+            </p>
+            <p>
+              <span className="text-[var(--muted)]">含稅總額</span>{" "}
+              <span className="font-semibold tabular-nums" data-field="Total_Amount">
+                NT$ {formatTwd(order.Total_Amount)}
+              </span>
+            </p>
           </div>
-        )}
+        </div>
 
         <div className="table-shell table-dense">
           <table>
@@ -376,7 +402,7 @@ export default function OrderDetailClient() {
           {isDraft && (
             <>
               <button type="button" className="btn-ghost" onClick={saveDraft}>
-                儲存草稿
+                儲存
               </button>
               <button
                 type="button"
@@ -403,7 +429,7 @@ export default function OrderDetailClient() {
                   toastResult(r.ok, r.message, "無法取消");
                 }}
               >
-                取消草稿
+                取消
               </button>
             </>
           )}
@@ -423,7 +449,7 @@ export default function OrderDetailClient() {
                   toastResult(r.ok, r.message, "無法重開");
                 }}
               >
-                Admin 重開
+                重開
               </button>
               <button
                 type="button"
@@ -433,16 +459,13 @@ export default function OrderDetailClient() {
                   toastResult(r.ok, r.message, "無法取消");
                 }}
               >
-                Admin 取消
+                取消
               </button>
-              <Link href="/shipping/" className="btn-primary">
-                出貨（第 11 週）
-              </Link>
             </>
           )}
           {isCancelled && (
             <span className="text-xs text-[var(--muted)]">
-              已取消終態，不可再確認或刪除
+              已取消 · 終態
             </span>
           )}
         </PrimaryActionBar>
