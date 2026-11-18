@@ -45,6 +45,8 @@ import {
 } from "./order-rules";
 import {
   baselineCustomers,
+  baselineOrderDetails,
+  baselineOrders,
   customers as seedCustomers,
   demoCustomers,
   initialOrders,
@@ -630,7 +632,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       currentUserIdRef.current = userId;
       setCurrentUserId(userId);
-      if (target.Role !== "Admin") router.push("/");
+      // Staff 不可留在設定頁；驗收／其他頁面需可切角色連續測，勿一律踢回首頁
+      if (target.Role !== "Admin" && typeof window !== "undefined") {
+        const path = window.location.pathname.replace(/\/$/, "") || "/";
+        if (path.endsWith("/settings")) router.push("/");
+      }
       return { ok: true };
     },
     [router],
@@ -1355,6 +1361,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loadBaselineData = useCallback(() => {
     const next = cloneSeed();
     next.customers = baselineCustomers.map((c) => ({ ...c }));
+    // 與第 6 週基準一致：僅 SO001–SO005，避免 C006 幽靈訂單佔號
+    next.orders = baselineOrders.map((o) => ensureOrderShape({ ...o }));
+    next.orderDetails = baselineOrderDetails.map((d) => ensureDetailShape({ ...d }));
     applySeedLike(next);
   }, [applySeedLike]);
 

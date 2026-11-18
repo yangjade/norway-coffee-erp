@@ -818,6 +818,12 @@ export const initialReceivables: Receivable[] = [
 
 export const initialPayments: Payment[] = [];
 
+/** 第 6 週基準：擴充前凍結 SO001–SO005（供 loadBaseline／T01–T12） */
+export const baselineOrders: SalesOrder[] = initialOrders.map((o) => ({ ...o }));
+export const baselineOrderDetails: SalesOrderDetail[] = orderDetails.map((d) => ({
+  ...d,
+}));
+
 /** 擴充至可分頁體量（客戶／商品／訂單／報價／應收） */
 customers.push(...buildExtraCustomers(customers));
 products.push(...buildExtraProducts(products));

@@ -6,8 +6,8 @@ import { useApp } from "@/lib/app-context";
 import { computeKpi } from "@/lib/kpi";
 import {
   baselineCustomers,
-  initialOrders,
-  orderDetails as seedOrderDetails,
+  baselineOrderDetails,
+  baselineOrders,
 } from "@/lib/sample-data";
 import type { Customer, CustomerUpdateInput } from "@/lib/types";
 
@@ -153,10 +153,10 @@ export function WeekTAcceptance() {
       `交集 ${officeRetail.length}；批發 ${wholesale.map((c) => c.Customer_ID).join("、")}`,
     );
 
-    // T07：C001 有 SO001（2 明細）；新建 C006 無訂單
-    const so001 = seedOrderDetails.filter((d) => d.Order_ID === "SO001");
-    const c001Orders = initialOrders.filter((o) => o.Customer_ID === "C001");
-    const c006Orders = initialOrders.filter((o) => o.Customer_ID === "C006");
+    // T07：C001 有 SO001（2 明細）；新建 C006 在基準訂單中無單
+    const so001 = baselineOrderDetails.filter((d) => d.Order_ID === "SO001");
+    const c001Orders = baselineOrders.filter((o) => o.Customer_ID === "C001");
+    const c006Orders = baselineOrders.filter((o) => o.Customer_ID === "C006");
     setRow(
       "T07",
       "C001 訂單／C006 無單",
@@ -222,7 +222,7 @@ export function WeekTAcceptance() {
     // T12：恢復基準 5 客；改 C001 聯絡；Staff 不可改使用者設定
     app.loadBaselineData();
     const r12 = app.updateCustomer("C001", { Contact: "驗收聯絡人" });
-    const kpi = computeKpi(baselineCustomers, initialOrders);
+    const kpi = computeKpi(baselineCustomers, baselineOrders);
     app.switchUser("U002");
     const staffSettings = app.setUserActive("U002", false);
     app.switchUser("U001");
@@ -301,7 +301,7 @@ export function WeekTAcceptance() {
           {rows.map((r) => (
             <li
               key={r.id}
-              id={r.id.toLowerCase()}
+              data-case={r.id}
               className={
                 r.pass ? "text-[var(--brand-deep)]" : "text-[var(--danger)]"
               }
