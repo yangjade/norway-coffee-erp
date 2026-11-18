@@ -433,7 +433,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const ordersRef = useRef(orders);
   const orderDetailsRef = useRef(orderDetails);
   const orderAuditsRef = useRef(orderAudits);
+  const customersRef = useRef(customers);
   const productsRef = useRef(products);
+  const quotationsRef = useRef(quotations);
+  const quotationDetailsRef = useRef(quotationDetails);
   const receivablesRef = useRef(receivables);
   const paymentsRef = useRef(payments);
   const stockMovesRef = useRef(stockMoves);
@@ -443,7 +446,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   ordersRef.current = orders;
   orderDetailsRef.current = orderDetails;
   orderAuditsRef.current = orderAudits;
+  customersRef.current = customers;
   productsRef.current = products;
+  quotationsRef.current = quotations;
+  quotationDetailsRef.current = quotationDetails;
   receivablesRef.current = receivables;
   paymentsRef.current = payments;
   stockMovesRef.current = stockMoves;
@@ -632,7 +638,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setUserActive = useCallback(
     (userId: string, isActive: boolean) => {
-      if (currentUser.Role !== "Admin") {
+      if (activeUser().Role !== "Admin") {
         return {
           ok: false,
           message: "目前角色無法使用此功能（無權限修改使用者啟用狀態）。",
@@ -641,14 +647,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (userId !== "U002") {
         return { ok: false, message: "本週教學僅允許修改 U002 的啟用狀態。" };
       }
-      setUsers((prev) =>
-        prev.map((u) =>
+      setUsers((prev) => {
+        const next = prev.map((u) =>
           u.User_ID === userId ? { ...u, Is_Active: isActive } : u,
-        ),
-      );
+        );
+        usersRef.current = next;
+        return next;
+      });
       return { ok: true };
     },
-    [currentUser.Role],
+    [activeUser],
   );
 
   const convertAcceptedQuote = useCallback(
@@ -1074,23 +1082,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const createCustomer = useCallback(
     (input: CustomerCreateInput): ActionResult => {
-      const id = nextCustomerId(customers);
-      if (customers.some((c) => c.Customer_ID === id)) {
+      const list = customersRef.current;
+      const id = nextCustomerId(list);
+      if (list.some((c) => c.Customer_ID === id)) {
         return {
           ok: false,
           message: `客戶編號 ${id} 已存在，無法建立。`,
           errors: { Customer_ID: `客戶編號 ${id} 已存在。` },
         };
       }
-      const built = buildNewCustomer(id, input, currentUser.Role);
+      const built = buildNewCustomer(id, input, activeUser().Role);
       if (!built.customer) {
         return { ok: false, message: built.message, errors: built.errors };
       }
       const duplicateHint = findDuplicateNameHint(
-        customers,
+        list,
         built.customer.Customer_Name,
       );
-      setCustomers((prev) => [...prev, built.customer!]);
+      customersRef.current = [...list, built.customer];
+      setCustomers(customersRef.current);
       return {
         ok: true,
         customer: built.customer,
@@ -1099,14 +1109,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : `已建立 ${built.customer.Customer_ID}`,
       };
     },
-    [customers, currentUser.Role],
+    [activeUser],
   );
 
   const updateCustomer = useCallback(
     (customerId: string, patch: CustomerUpdateInput): ActionResult => {
-      const existing = customers.find((c) => c.Customer_ID === customerId);
+      const list = customersRef.current;
+      const existing = list.find((c) => c.Customer_ID === customerId);
       if (!existing) return { ok: false, message: "找不到該客戶。" };
-      const applied = applyCustomerPatch(existing, patch, currentUser.Role);
+      const applied = applyCustomerPatch(existing, patch, activeUser().Role);
       if (!applied.customer) {
         return {
           ok: false,
@@ -1115,22 +1126,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
         };
       }
       const duplicateHint = findDuplicateNameHint(
-        customers,
+        list,
         applied.customer.Customer_Name,
         customerId,
       );
-      setCustomers((prev) =>
-        prev.map((c) =>
-          c.Customer_ID === customerId ? applied.customer! : c,
-        ),
+      customersRef.current = list.map((c) =>
+        c.Customer_ID === customerId ? applied.customer! : c,
       );
+      setCustomers(customersRef.current);
       return {
         ok: true,
         customer: applied.customer,
         message: duplicateHint ?? "已儲存客戶資料。",
       };
     },
-    [customers, currentUser.Role],
+    [activeUser],
   );
 
   const setCustomerActive = useCallback(
@@ -1169,26 +1179,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const createProduct = useCallback(
     (input: ProductCreateInput): ProductActionResult => {
-      const id = nextProductId(products);
-      const built = buildNewProduct(id, input, currentUser.Role);
+      const list = productsRef.current;
+      const id = nextProductId(list);
+      const built = buildNewProduct(id, input, activeUser().Role);
       if (!built.product) {
         return { ok: false, message: built.message, errors: built.errors };
       }
-      setProducts((prev) => [...prev, built.product!]);
+      productsRef.current = [...list, built.product];
+      setProducts(productsRef.current);
       return {
         ok: true,
         product: built.product,
         message: `已建立 ${built.product.Product_ID}`,
       };
     },
-    [products, currentUser.Role],
+    [activeUser],
   );
 
   const updateProduct = useCallback(
     (productId: string, patch: ProductUpdateInput): ProductActionResult => {
-      const existing = products.find((p) => p.Product_ID === productId);
+      const list = productsRef.current;
+      const existing = list.find((p) => p.Product_ID === productId);
       if (!existing) return { ok: false, message: "找不到該商品。" };
-      const applied = applyProductPatch(existing, patch, currentUser.Role);
+      const applied = applyProductPatch(existing, patch, activeUser().Role);
       if (!applied.product) {
         return {
           ok: false,
@@ -1196,18 +1209,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           errors: applied.errors,
         };
       }
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.Product_ID === productId ? applied.product! : p,
-        ),
+      productsRef.current = list.map((p) =>
+        p.Product_ID === productId ? applied.product! : p,
       );
+      setProducts(productsRef.current);
       return {
         ok: true,
         product: applied.product,
         message: "已儲存商品資料。",
       };
     },
-    [products, currentUser.Role],
+    [activeUser],
   );
 
   const softDeactivateProduct = useCallback(
@@ -1224,63 +1236,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const createQuote = useCallback(
     (input: QuotationCreateInput): QuoteActionResult => {
-      const id = nextQuoteId(quotations);
+      const id = nextQuoteId(quotationsRef.current);
       const result = buildQuotation(
         id,
         input,
-        currentUser.Role,
-        customers,
-        products,
+        activeUser().Role,
+        customersRef.current,
+        productsRef.current,
       );
       if (!result.ok || !result.quotation || !result.details) return result;
-      setQuotations((prev) => [...prev, result.quotation!]);
-      setQuotationDetails((prev) => [...prev, ...result.details!]);
+      quotationsRef.current = [...quotationsRef.current, result.quotation];
+      quotationDetailsRef.current = [
+        ...quotationDetailsRef.current,
+        ...result.details,
+      ];
+      setQuotations(quotationsRef.current);
+      setQuotationDetails(quotationDetailsRef.current);
       return result;
     },
-    [quotations, customers, products, currentUser.Role],
+    [activeUser],
   );
 
   const updateDraftQuote = useCallback(
     (quoteId: string, input: QuotationUpdateInput): QuoteActionResult => {
-      const existing = quotations.find((q) => q.Quote_ID === quoteId);
+      const existing = quotationsRef.current.find((q) => q.Quote_ID === quoteId);
       if (!existing) return { ok: false, message: "找不到該報價。" };
-      const existingDetails = quotationDetails.filter(
+      const existingDetails = quotationDetailsRef.current.filter(
         (d) => d.Quote_ID === quoteId,
       );
       const result = updateDraftQuotation(
         existing,
         existingDetails,
         input,
-        currentUser.Role,
-        products,
+        activeUser().Role,
+        productsRef.current,
       );
       if (!result.ok || !result.quotation) return result;
-      setQuotations((prev) =>
-        prev.map((q) => (q.Quote_ID === quoteId ? result.quotation! : q)),
+      quotationsRef.current = quotationsRef.current.map((q) =>
+        q.Quote_ID === quoteId ? result.quotation! : q,
       );
+      setQuotations(quotationsRef.current);
       if (result.details) {
-        setQuotationDetails((prev) => [
-          ...prev.filter((d) => d.Quote_ID !== quoteId),
-          ...result.details!,
-        ]);
+        quotationDetailsRef.current = [
+          ...quotationDetailsRef.current.filter((d) => d.Quote_ID !== quoteId),
+          ...result.details,
+        ];
+        setQuotationDetails(quotationDetailsRef.current);
       }
       return result;
     },
-    [quotations, quotationDetails, products, currentUser.Role],
+    [activeUser],
   );
 
   const setQuoteStatus = useCallback(
     (quoteId: string, status: QuoteStatus): QuoteActionResult => {
-      const existing = quotations.find((q) => q.Quote_ID === quoteId);
+      const existing = quotationsRef.current.find((q) => q.Quote_ID === quoteId);
       if (!existing) return { ok: false, message: "找不到該報價。" };
-      const result = transitionQuoteStatus(existing, status, currentUser.Role);
+      const result = transitionQuoteStatus(existing, status, activeUser().Role);
       if (!result.ok || !result.quotation) return result;
-      setQuotations((prev) =>
-        prev.map((q) => (q.Quote_ID === quoteId ? result.quotation! : q)),
+      quotationsRef.current = quotationsRef.current.map((q) =>
+        q.Quote_ID === quoteId ? result.quotation! : q,
       );
+      setQuotations(quotationsRef.current);
       return result;
     },
-    [quotations, currentUser.Role],
+    [activeUser],
   );
 
   const tryForceAcceptQuote = useCallback(
@@ -1293,7 +1313,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       usersRef.current = next.users;
       ordersRef.current = next.orders;
       orderDetailsRef.current = next.orderDetails;
+      customersRef.current = next.customers;
       productsRef.current = next.products;
+      quotationsRef.current = next.quotations;
+      quotationDetailsRef.current = next.quotationDetails;
       stockMovesRef.current = next.stockMoves;
       stockReservationsRef.current = next.stockReservations ?? [];
       receivablesRef.current = next.receivables;

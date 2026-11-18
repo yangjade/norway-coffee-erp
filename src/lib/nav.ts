@@ -71,7 +71,7 @@ export const NAV_GROUPS: NavGroup[] = [
 ];
 
 export const APP_VERSION = "v1.3 (W10)";
-export const APP_VERSION_NOTE = "高於截圖：四分頁庫存＋I 一鍵全過";
+export const APP_VERSION_NOTE = "T／S／I 三套一鍵驗收＋四分頁庫存";
 
 export const BREADCRUMB_LABELS: Record<string, string> = {
   "": "主頁",
