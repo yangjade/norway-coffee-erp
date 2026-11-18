@@ -10,7 +10,7 @@ import {
 } from "@/components/CommandPalette";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useApp } from "@/lib/app-context";
-import { isNavActive, NAV_GROUPS } from "@/lib/nav";
+import { APP_VERSION, APP_VERSION_NOTE, isNavActive, NAV_GROUPS } from "@/lib/nav";
 import { roleLabel, roleShortLabel, roleWorkspaceTitle } from "@/lib/roles";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -82,11 +82,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-label="模組導覽"
         >
           <div className="px-4 pb-3 pt-5">
-            <p className="brand-wordmark text-[1.35rem] leading-tight">
+            <p className="brand-wordmark text-[1.2rem] leading-tight tracking-[0.04em]">
+              NORWAY COFFEE
+            </p>
+            <p className="mt-1 text-[13px] font-medium text-[#f3ebe3]">
               挪威的咖啡
             </p>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--muted)]">
-              配銷 ERP · 本機示範
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[rgba(243,235,227,0.65)]">
+              ERP {APP_VERSION}
+            </p>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-[rgba(243,235,227,0.45)]">
+              {APP_VERSION_NOTE}
             </p>
           </div>
 
@@ -123,16 +129,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <p className="side-group-label">{group.label}</p>
                   {items.map((item) => {
                     const active = isNavActive(pathname, item.href);
+                    const href = item.href.includes("#")
+                      ? item.href
+                      : item.href === "/"
+                        ? "/"
+                        : `${item.href}/`;
                     return (
                       <Link
                         key={item.href}
-                        href={item.href === "/" ? "/" : `${item.href}/`}
+                        href={href}
                         data-active={active}
                         className="side-link"
                       >
                         {item.label}
                         {item.adminOnly && (
-                          <span className="ml-auto text-[10px] text-[var(--sage)]">
+                          <span className="ml-auto text-[10px] text-[rgba(243,235,227,0.55)]">
                             管理者
                           </span>
                         )}

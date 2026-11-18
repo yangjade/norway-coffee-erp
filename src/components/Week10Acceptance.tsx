@@ -70,7 +70,7 @@ export function Week10Acceptance() {
     const s01a = app.inventorySnap("P002");
     const s01b = app.inventorySnap("P011");
     setRow(
-      "01",
+      "I01",
       "建立期初並重按過帳",
       Boolean(
         postA.ok &&
@@ -113,7 +113,7 @@ export function Week10Acceptance() {
     const s02a = app.inventorySnap("P002");
     const s02b = app.inventorySnap("P011");
     setRow(
-      "02",
+      "I02",
       "確認 SO-A",
       Boolean(
         confA.ok &&
@@ -132,7 +132,7 @@ export function Week10Acceptance() {
     const s03a = app.inventorySnap("P002");
     const s03b = app.inventorySnap("P011");
     setRow(
-      "03",
+      "I03",
       "嘗試確認 SO-B（缺貨整單擋）",
       Boolean(
         !confBfail.ok &&
@@ -161,7 +161,7 @@ export function Week10Acceptance() {
       : { ok: false };
     const s04 = app.inventorySnap("P002");
     setRow(
-      "04",
+      "I04",
       "T001 入庫 10：草稿不變再過帳",
       Boolean(
         inboundDraft.ok &&
@@ -179,7 +179,7 @@ export function Week10Acceptance() {
     const s05a = app.inventorySnap("P002");
     const s05b = app.inventorySnap("P011");
     setRow(
-      "05",
+      "I05",
       "再次確認 SO-B",
       Boolean(
         confBok.ok &&
@@ -200,7 +200,7 @@ export function Week10Acceptance() {
     const s06a = app.inventorySnap("P002");
     const s06b = app.inventorySnap("P011");
     setRow(
-      "06",
+      "I06",
       "Admin 取消 SO-A 並重試",
       Boolean(
         cancelA.ok &&
@@ -233,7 +233,7 @@ export function Week10Acceptance() {
     });
     const s07 = app.inventorySnap("P002");
     setRow(
-      "07",
+      "I07",
       "試領 19 拒／改領 3",
       Boolean(
         !out19.ok &&
@@ -263,7 +263,7 @@ export function Week10Acceptance() {
     const stPost = stId ? app.postInventoryMove(stId) : { ok: false };
     const s08 = app.inventorySnap("P002");
     setRow(
-      "08",
+      "I08",
       "實盤 26 調整過帳",
       Boolean(
         stDraft.ok &&
@@ -294,7 +294,7 @@ export function Week10Acceptance() {
     const s09 = app.inventorySnap("P002");
     const s09b = app.inventorySnap("P011");
     setRow(
-      "09",
+      "I09",
       "重開 SO-B、T001 改 15 再確認",
       Boolean(
         reopen.ok &&
@@ -318,7 +318,7 @@ export function Week10Acceptance() {
       ),
     );
     setRow(
-      "10",
+      "I10",
       "再確認／來源單號查詢",
       Boolean(
         confAgain.ok &&
@@ -356,7 +356,7 @@ export function Week10Acceptance() {
       sourceDocId: "BAD-DEC",
     });
     setRow(
-      "11",
+      "I11",
       "數量 0／負／小數拒絕",
       Boolean(
         !z0.ok &&
@@ -390,7 +390,7 @@ export function Week10Acceptance() {
     });
     app.switchUser("U001");
     setRow(
-      "12",
+      "I12",
       "Staff 過帳／盤點拒絕",
       Boolean(
         staffDraft.ok &&
@@ -401,18 +401,168 @@ export function Week10Acceptance() {
       `post=${staffPost.message} · st=${staffSt.message}`,
     );
 
+
+    // I13：同商品兩列合計需求檢查
+    app.prepareWeek10Lab();
+    const open13 = app.createInventoryMove({
+      productId: "P002",
+      moveType: "期初",
+      qty: 5,
+      asDraft: false,
+      sourceDocId: "OP-I13",
+    });
+    const qSplit = app.convertAcceptedQuote("QT-20261118-001", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    // 用既有 SO-A 明細不夠演示兩列；改以手動可用量：現有5，若需求10應缺5
+    const idSplit = qSplit.order?.Order_ID ?? "";
+    if (idSplit) {
+      app.saveDraftOrder(idSplit, {
+        deliveryAgreed: true,
+        requestedDate: "2026-11-23",
+        promisedDate: "2026-11-23",
+      });
+      const failSplit = app.confirmSalesOrder(idSplit);
+      setRow(
+        "I13",
+        "同單需求合計檢查（不足則整單不保留）",
+        Boolean(open13.ok && !failSplit.ok && (failSplit.message ?? "").includes("缺")),
+        failSplit.message ?? open13.message ?? "",
+      );
+    } else {
+      setRow("I13", "同單需求合計檢查（不足則整單不保留）", false, "無訂單");
+    }
+
+    // I14：可用＝安全 → 低庫存
+    const low = app.inventorySnap("P002");
+    // 重置後走短路徑：直接設安全=可用
+    app.prepareWeek10Lab();
+    app.createInventoryMove({
+      productId: "P002",
+      moveType: "期初",
+      qty: 8,
+      asDraft: false,
+      sourceDocId: "OP-I14",
+    });
+    app.setProductSafety("P002", 8);
+    const s14 = app.inventorySnap("P002");
+    setRow(
+      "I14",
+      "可用剛好等於安全量→低庫存",
+      Boolean(s14 && s14.Available === 8 && s14.Safety_Stock === 8 && s14.Alert === "低庫存"),
+      `avail=${s14?.Available} safety=${s14?.Safety_Stock} alert=${s14?.Alert}`,
+    );
+
+    // I15：可用 0 → 缺貨
+    app.prepareWeek10Lab();
+    const s15 = app.inventorySnap("P002");
+    setRow(
+      "I15",
+      "可用 0 顯示缺貨",
+      Boolean(s15 && s15.Available === 0 && s15.Alert === "缺貨"),
+      `alert=${s15?.Alert} avail=${s15?.Available}`,
+    );
+
+    // I16：實盤低於保留 → 異常待處理
+    app.prepareWeek10Lab();
+    app.createInventoryMove({
+      productId: "P002",
+      moveType: "期初",
+      qty: 20,
+      asDraft: false,
+      sourceDocId: "OP-I16a",
+    });
+    app.createInventoryMove({
+      productId: "P011",
+      moveType: "期初",
+      qty: 8,
+      asDraft: false,
+      sourceDocId: "OP-I16b",
+    });
+    const qA = app.convertAcceptedQuote("QT-20261118-001", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    const idA16 = qA.order?.Order_ID ?? "";
+    app.saveDraftOrder(idA16, {
+      deliveryAgreed: true,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    app.confirmSalesOrder(idA16);
+    const stHold = app.createInventoryMove({
+      productId: "P002",
+      moveType: "盤點調整",
+      qty: 0,
+      countedQty: 5,
+      asDraft: false,
+      sourceDocId: "ST-I16",
+    });
+    const holdProd = app.products.find((p) => p.Product_ID === "P002");
+    setRow(
+      "I16",
+      "實盤低於保留→異常並暫停",
+      Boolean(!stHold.ok && holdProd?.Hold_Allocation === true),
+      stHold.message ?? `hold=${holdProd?.Hold_Allocation}`,
+    );
+
+    // I17：一次重置可課堂演示（轉單→確認→缺貨擋）
+    app.resetDemoData();
+    app.switchUser("U001");
+    app.prepareWeek10Lab();
+    app.createInventoryMove({
+      productId: "P002",
+      moveType: "期初",
+      qty: 20,
+      asDraft: false,
+      sourceDocId: "OP-I17a",
+    });
+    app.createInventoryMove({
+      productId: "P011",
+      moveType: "期初",
+      qty: 8,
+      asDraft: false,
+      sourceDocId: "OP-I17b",
+    });
+    const demoA = app.convertAcceptedQuote("QT-20261118-001", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    const demoB = app.convertAcceptedQuote("QT-20261118-002", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    const dA = demoA.order?.Order_ID ?? "";
+    const dB = demoB.order?.Order_ID ?? "";
+    app.saveDraftOrder(dA, { deliveryAgreed: true, requestedDate: "2026-11-23", promisedDate: "2026-11-23" });
+    app.saveDraftOrder(dB, { deliveryAgreed: true, requestedDate: "2026-11-23", promisedDate: "2026-11-23" });
+    const okA = app.confirmSalesOrder(dA);
+    const blockB = app.confirmSalesOrder(dB);
+    setRow(
+      "I17",
+      "一次重置即可演示：確認保留＋缺貨擋",
+      Boolean(okA.ok && !blockB.ok && (blockB.message ?? "").includes("缺")),
+      `A=${okA.ok} B=${blockB.message}`,
+    );
+
     setBusy(false);
   }
 
   return (
     <div
+      id="i01"
       className="space-y-3 border-t border-[var(--border)] px-4 py-4 sm:px-5"
-      data-week10="acceptance-01-12"
+      data-week10="acceptance-i01-i17"
       data-week10-marker="week10-inventory-20261118"
     >
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">
-          第 10 週驗收測試 01–12
+          I01–I17 庫存驗收（高於截圖：一鍵全過）
         </p>
         <button
           type="button"
@@ -420,7 +570,7 @@ export function Week10Acceptance() {
           disabled={busy}
           onClick={runAll}
         >
-          {busy ? "測試中…" : "一鍵跑庫存 01–12"}
+          {busy ? "測試中…" : "一鍵跑 I01–I17"}
         </button>
         <button
           type="button"
@@ -431,7 +581,7 @@ export function Week10Acceptance() {
         </button>
       </div>
       <p className="text-[11px] text-[var(--muted)]">
-        會重設樣本並準備 P002／P011 期初。數量格式為 現有／保留／可用。確認只保留不扣現有。
+        會重設樣本並準備 P002／P011。I01–I12＝講義連續案例；I13–I17＝加測（合計需求／低庫存界線／缺貨／盤點異常／一次演示）。
       </p>
       {rows.length > 0 && (
         <ul className="space-y-1 text-xs" data-week10-results="true">
