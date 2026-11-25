@@ -265,37 +265,42 @@ function ShippingPageInner() {
       />
 
       <Notice kind="info">
-        僅 Confirmed＋有效保留可建草稿。Staff 可建草稿／更新物流；僅 Admin
-        可過帳。物流狀態 Pending／InTransit（運送中）／Delivered（已送達）／Exception
-        與過帳分開，可更新並留歷程。樣本含 SO-W11-RDY（可建草稿）、SH-20261125-001
-        Draft（可過帳）及四態物流範例；重設樣本後仍在。
+        範例已寫入「重設樣本」：SO-W11-RDY（可建草稿）、SH-20261125-001 Draft（可過帳）、
+        運送中／已送達／異常各一。物流與過帳分開。若列表仍空，請按下方按鈕。
       </Notice>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--linen)]/40 px-3 py-3">
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary text-base px-5 py-2.5"
+          data-week11="load-examples"
           onClick={() => {
             resetDemoData();
-            setFlash("已重設樣本（含出貨／物流示範）");
+            setFlash(
+              "已載入第11週範例：可建草稿訂單＋Draft＋運送中＋已送達＋異常",
+            );
             setError(null);
             setTab("list");
-            setSelectedId("SH-20261125-001");
+            setSelectedId("SH-20261112-001");
           }}
         >
-          重設出貨示範
+          載入第11週範例
         </button>
         <button
           type="button"
           className="btn-ghost"
           onClick={() => {
             const r = prepareWeek11Lab();
-            setFlash(r.message ?? "第11週起點就緒");
+            setFlash(r.message ?? "第11週起點就緒（SO-B 可建草稿）");
             setError(null);
             setTab("create");
+            setSelectedId(null);
           }}
         >
-          準備第11週案例（SO-B）
+          準備 SO-B 驗收起點
         </button>
+        <Link href="/acceptance/#sh01" className="btn-ghost">
+          T01–T12 驗收
+        </Link>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2 text-xs tabular-nums text-[var(--muted)]">

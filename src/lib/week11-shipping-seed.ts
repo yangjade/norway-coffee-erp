@@ -477,7 +477,10 @@ export function week11ShippingDemoSlice(): Week11SeedSlice {
   };
 }
 
-/** 套用示範：庫存對齊講義 P002 26／P011 8；缺則注入 */
+/**
+ * 一律 upsert 第 11 週示範（可建草稿訂單＋Draft＋運送中＋已送達＋異常）。
+ * 重設樣本／hydrate 舊 v8 都會呼叫，避免羊看到空列表。
+ */
 export function applyWeek11ShippingDemo<T extends {
   orders: SalesOrder[];
   orderDetails: SalesOrderDetail[];
@@ -488,21 +491,10 @@ export function applyWeek11ShippingDemo<T extends {
   deliveryLogs: DeliveryStatusLog[];
 }>(state: T): T {
   const demo = week11ShippingDemoSlice();
-  const hasSob = state.orders.some((o) => o.Order_ID === W11_ORDER_SOB);
-  if (hasSob) {
-    // 仍校正庫存，避免舊種子過低無法過帳
-    return {
-      ...state,
-      products: state.products.map((p) => {
-        if (p.Product_ID === "P002") return { ...p, On_Hand: Math.max(p.On_Hand, 26) };
-        if (p.Product_ID === "P011") return { ...p, On_Hand: Math.max(p.On_Hand, 8) };
-        if (p.Product_ID === "P003") return { ...p, On_Hand: Math.max(p.On_Hand, 40) };
-        return p;
-      }),
-    };
-  }
-
   const orderIds = new Set(demo.orders.map((o) => o.Order_ID));
+  const shipIds = new Set(demo.shipments.map((s) => s.Shipment_ID));
+  const logIds = new Set(demo.deliveryLogs.map((l) => l.Log_ID));
+
   return {
     ...state,
     orders: [
@@ -514,8 +506,8 @@ export function applyWeek11ShippingDemo<T extends {
       ...demo.orderDetails,
     ],
     products: state.products.map((p) => {
-      if (p.Product_ID === "P002") return { ...p, On_Hand: 26 };
-      if (p.Product_ID === "P011") return { ...p, On_Hand: 8 };
+      if (p.Product_ID === "P002") return { ...p, On_Hand: Math.max(p.On_Hand, 26) };
+      if (p.Product_ID === "P011") return { ...p, On_Hand: Math.max(p.On_Hand, 8) };
       if (p.Product_ID === "P003") return { ...p, On_Hand: Math.max(p.On_Hand, 40) };
       return p;
     }),
@@ -524,26 +516,15 @@ export function applyWeek11ShippingDemo<T extends {
       ...demo.stockReservations,
     ],
     shipments: [
-      ...state.shipments.filter(
-        (s) =>
-          !demo.shipments.some((d) => d.Shipment_ID === s.Shipment_ID),
-      ),
+      ...state.shipments.filter((s) => !shipIds.has(s.Shipment_ID)),
       ...demo.shipments,
     ],
     shipmentDetails: [
-      ...state.shipmentDetails.filter(
-        (d) =>
-          !demo.shipmentDetails.some(
-            (x) =>
-              x.Shipment_ID === d.Shipment_ID && x.Line_No === d.Line_No,
-          ),
-      ),
+      ...state.shipmentDetails.filter((d) => !shipIds.has(d.Shipment_ID)),
       ...demo.shipmentDetails,
     ],
     deliveryLogs: [
-      ...state.deliveryLogs.filter(
-        (l) => !demo.deliveryLogs.some((d) => d.Log_ID === l.Log_ID),
-      ),
+      ...state.deliveryLogs.filter((l) => !logIds.has(l.Log_ID)),
       ...demo.deliveryLogs,
     ],
   };
