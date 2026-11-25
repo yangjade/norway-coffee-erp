@@ -94,6 +94,7 @@ import {
   type UpdateDeliveryInput,
   type UpdateShipmentDraftInput,
 } from "./shipment-rules";
+import { applyWeek11ShippingDemo } from "./week11-shipping-seed";
 import type {
   AppUser,
   Customer,
@@ -287,7 +288,7 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 function cloneSeed(): Omit<PersistedState, "version"> {
-  return {
+  const base: Omit<PersistedState, "version"> = {
     users: initialUsers.map((u) => ({ ...u })),
     orders: initialOrders.map((o) => ensureOrderShape({ ...o })),
     orderDetails: seedOrderDetails.map((d) => ensureDetailShape({ ...d })),
@@ -305,6 +306,8 @@ function cloneSeed(): Omit<PersistedState, "version"> {
     orderAudits: [],
     currentUserId: "U001",
   };
+  // 第 11 週：可建草稿＋可過帳草稿＋物流四態範例（重設樣本後仍在）
+  return applyWeek11ShippingDemo(base);
 }
 
 function isCustomerShape(c: unknown): c is Customer {
@@ -466,8 +469,7 @@ function readStorage(): PersistedState | null {
       const users = Array.isArray(full.users) && full.users.length
         ? (full.users as AppUser[])
         : seed.users;
-      return {
-        version: STORAGE_VERSION,
+      const migrated = applyWeek11ShippingDemo({
         users,
         orders: Array.isArray(full.orders)
           ? (full.orders as SalesOrder[]).map((o) => ensureOrderShape(o))
@@ -520,7 +522,8 @@ function readStorage(): PersistedState | null {
           typeof full.currentUserId === "string"
             ? full.currentUserId
             : "U001",
-      };
+      });
+      return { version: STORAGE_VERSION, ...migrated };
     }
     return null;
   } catch {
