@@ -112,6 +112,8 @@ export interface SalesOrderDetail {
   Discount_Rate: number;
   /** 折後未稅額（整數） */
   Line_Amount: number;
+  /** 第 11 週：累計已出貨量（過帳後更新） */
+  Shipped_Qty?: number;
   /** @deprecated 舊乘數折扣；遷移用 */
   Discount?: number;
   Subtotal?: number;
@@ -234,7 +236,7 @@ export type QuotationUpdateInput = {
 export const WAREHOUSE_ID = "WH01" as const;
 export type WarehouseId = typeof WAREHOUSE_ID;
 
-/** 庫存異動類型（第 10 週） */
+/** 庫存異動類型（第 10／11 週） */
 export type StockMoveType =
   | "期初"
   | "入庫"
@@ -242,8 +244,78 @@ export type StockMoveType =
   | "盤點調整"
   | "更正"
   | "出貨扣庫"
+  | "Sales_Shipment"
   | "取消還原"
   | "手動調整";
+
+/** 第 11 週：出貨單過帳狀態 */
+export type ShipmentStatus = "Draft" | "Posted" | "Cancelled";
+
+/** 第 11 週：物流狀態（與過帳／收款分開） */
+export type DeliveryStatus =
+  | "Pending"
+  | "InTransit"
+  | "Delivered"
+  | "Exception";
+
+/** 第 11 週：履約狀態（由已出貨量推算） */
+export type FulfillmentStatus = "Unshipped" | "Shipped";
+
+export type DeliveryMethod = "宅配" | "自取";
+
+/** 出貨表頭 Shipment */
+export interface Shipment {
+  Shipment_ID: string;
+  Order_ID: string;
+  Warehouse_ID: WarehouseId;
+  /** 實際離倉日 */
+  Shipment_Date: string;
+  Recipient: string;
+  Address_Snapshot: string;
+  Delivery_Method: DeliveryMethod;
+  Carrier?: string;
+  Tracking_No?: string;
+  Shipment_Status: ShipmentStatus;
+  Delivery_Status: DeliveryStatus;
+  Posted_At?: string;
+  Posted_By?: string;
+  Notes?: string;
+  Delivered_At?: string;
+  Receipt_Note?: string;
+  Exception_Note?: string;
+  Exception_At?: string;
+  Exception_By?: string;
+  Created_At: string;
+  Created_By: string;
+  Updated_At?: string;
+}
+
+/** 出貨明細 Shipment_Detail */
+export interface ShipmentDetail {
+  Shipment_ID: string;
+  Line_No: number;
+  /** 對應訂單明細 Detail_ID */
+  Order_Line: string;
+  Product_ID: string;
+  Reservation_ID: string;
+  Product_Name_Snapshot: string;
+  Unit_Snapshot: string;
+  Ship_Qty: number;
+}
+
+/** 物流狀態歷程 */
+export interface DeliveryStatusLog {
+  Log_ID: string;
+  Shipment_ID: string;
+  From_Status: DeliveryStatus;
+  To_Status: DeliveryStatus;
+  Reason?: string;
+  Tracking_No_Before?: string;
+  Tracking_No_After?: string;
+  At: string;
+  By_User_ID: string;
+  By_User_Name: string;
+}
 
 /** @deprecated 相容舊 Reason 欄位 */
 export type StockMoveReason = StockMoveType;
@@ -290,6 +362,10 @@ export interface StockReservation {
   Is_Active: boolean;
   Created_At: string;
   Released_At?: string;
+  /** 第 11 週：出貨消耗 vs 取消釋放 */
+  Consume_Reason?: "shipment" | "cancel_release";
+  Consumed_By_Shipment_ID?: string;
+  Consumed_At?: string;
 }
 
 /** 應收狀態（第 12 週；非營所稅） */

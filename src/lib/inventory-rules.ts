@@ -395,7 +395,12 @@ export function releaseOrderReserves(
   const next = reservations.map((r) => {
     if (r.Order_ID !== orderId || !r.Is_Active) return r;
     releasedQty += r.Qty;
-    return { ...r, Is_Active: false, Released_At: now };
+    return {
+      ...r,
+      Is_Active: false,
+      Released_At: now,
+      Consume_Reason: "cancel_release" as const,
+    };
   });
   return { reservations: next, releasedQty };
 }
@@ -635,7 +640,13 @@ export function restoreStockForUnship(
 }
 
 function signedQtyForType(moveType: StockMoveType, absQty: number): number {
-  if (moveType === "出庫" || moveType === "出貨扣庫") return -Math.abs(absQty);
+  if (
+    moveType === "出庫" ||
+    moveType === "出貨扣庫" ||
+    moveType === "Sales_Shipment"
+  ) {
+    return -Math.abs(absQty);
+  }
   if (moveType === "盤點調整" || moveType === "更正" || moveType === "手動調整") {
     return absQty; // caller passes signed
   }

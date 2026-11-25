@@ -83,11 +83,23 @@ import {
   type QuoteActionResult,
 } from "./quotation-rules";
 import { computeKpi } from "./kpi";
+import {
+  createShipmentDraft,
+  orderHasShipments,
+  postShipment,
+  updateDeliveryStatus,
+  updateShipmentDraft,
+  type CreateShipmentDraftInput,
+  type ShipmentActionResult,
+  type UpdateDeliveryInput,
+  type UpdateShipmentDraftInput,
+} from "./shipment-rules";
 import type {
   AppUser,
   Customer,
   CustomerCreateInput,
   CustomerUpdateInput,
+  DeliveryStatusLog,
   OrderAuditEntry,
   Payment,
   Product,
@@ -101,12 +113,14 @@ import type {
   Receivable,
   SalesOrder,
   SalesOrderDetail,
+  Shipment,
+  ShipmentDetail,
   StockMove,
   StockReservation,
 } from "./types";
 
-const STORAGE_KEY = "norway-coffee-erp-demo-v7";
-const STORAGE_VERSION = 7 as const;
+const STORAGE_KEY = "norway-coffee-erp-demo-v8";
+const STORAGE_VERSION = 8 as const;
 
 interface PersistedState {
   version: typeof STORAGE_VERSION;
@@ -119,6 +133,9 @@ interface PersistedState {
   quotationDetails: QuotationDetail[];
   stockMoves: StockMove[];
   stockReservations: StockReservation[];
+  shipments: Shipment[];
+  shipmentDetails: ShipmentDetail[];
+  deliveryLogs: DeliveryStatusLog[];
   receivables: Receivable[];
   payments: Payment[];
   orderAudits: OrderAuditEntry[];
@@ -137,6 +154,9 @@ interface AppContextValue {
   orderDetails: SalesOrderDetail[];
   stockMoves: StockMove[];
   stockReservations: StockReservation[];
+  shipments: Shipment[];
+  shipmentDetails: ShipmentDetail[];
+  deliveryLogs: DeliveryStatusLog[];
   setProducts: Dispatch<SetStateAction<Product[]>>;
   setStockMoves: Dispatch<SetStateAction<StockMove[]>>;
   setStockReservations: Dispatch<SetStateAction<StockReservation[]>>;
@@ -169,6 +189,19 @@ interface AppContextValue {
   reopenSalesOrder: (orderId: string, reason: string) => OrderActionResult;
   shipConfirmedOrder: (orderId: string) => { ok: boolean; message?: string };
   unshipOrder: (orderId: string) => { ok: boolean; message?: string };
+  createShipmentFromOrder: (
+    input: Omit<CreateShipmentDraftInput, "role" | "user">,
+  ) => ShipmentActionResult;
+  saveShipmentDraft: (
+    input: Omit<UpdateShipmentDraftInput, "role" | "user">,
+  ) => ShipmentActionResult;
+  postShipmentDoc: (
+    shipmentId: string,
+    options?: { receiptNote?: string },
+  ) => ShipmentActionResult;
+  updateShipmentDelivery: (
+    input: Omit<UpdateDeliveryInput, "role" | "user">,
+  ) => ShipmentActionResult;
   /** @deprecated 僅相容舊 ClassroomSim；請用 cancel／confirm／ship */
   setOrderStatus: (
     orderId: string,
@@ -180,6 +213,12 @@ interface AppContextValue {
     note?: string,
   ) => InventoryActionResult;
   prepareWeek10Lab: () => { ok: boolean; message?: string };
+  /** 準備第 11 週起點：SO-B 已確認、T001 26/15/11、T002 8/1/7 */
+  prepareWeek11Lab: () => {
+    ok: boolean;
+    message?: string;
+    orderId?: string;
+  };
   createInventoryMove: (
     input: Omit<CreateMoveInput, "role"> & { role?: never },
   ) => InventoryActionResult;
@@ -258,6 +297,9 @@ function cloneSeed(): Omit<PersistedState, "version"> {
     quotationDetails: initialQuotationDetails.map((d) => ({ ...d })),
     stockMoves: initialStockMoves.map((m) => ({ ...m })),
     stockReservations: [],
+    shipments: [],
+    shipmentDetails: [],
+    deliveryLogs: [],
     receivables: initialReceivables.map((r) => ({ ...r })),
     payments: initialPayments.map((p) => ({ ...p })),
     orderAudits: [],
@@ -306,7 +348,8 @@ function migrateFromLegacy(parsed: {
     parsed?.version !== 3 &&
     parsed?.version !== 4 &&
     parsed?.version !== 5 &&
-    parsed?.version !== 6
+    parsed?.version !== 6 &&
+    parsed?.version !== 7
   ) {
     return null;
   }
@@ -355,6 +398,14 @@ function migrateFromLegacy(parsed: {
   );
   const normalizedDetails = orderDetails.map((d) => ensureDetailShape(d));
 
+  const extra = parsed as {
+    stockReservations?: StockReservation[];
+    shipments?: Shipment[];
+    shipmentDetails?: ShipmentDetail[];
+    deliveryLogs?: DeliveryStatusLog[];
+    orderAudits?: OrderAuditEntry[];
+  };
+
   return {
     version: STORAGE_VERSION,
     users: parsed.users as AppUser[],
@@ -365,18 +416,22 @@ function migrateFromLegacy(parsed: {
     quotations,
     quotationDetails,
     stockMoves,
-    stockReservations: Array.isArray(
-      (parsed as { stockReservations?: unknown }).stockReservations,
-    )
-      ? (
-          (parsed as { stockReservations: StockReservation[] })
-            .stockReservations as StockReservation[]
-        ).map((r) => ({ ...r }))
+    stockReservations: Array.isArray(extra.stockReservations)
+      ? extra.stockReservations.map((r) => ({ ...r }))
+      : [],
+    shipments: Array.isArray(extra.shipments)
+      ? extra.shipments.map((s) => ({ ...s }))
+      : [],
+    shipmentDetails: Array.isArray(extra.shipmentDetails)
+      ? extra.shipmentDetails.map((d) => ({ ...d }))
+      : [],
+    deliveryLogs: Array.isArray(extra.deliveryLogs)
+      ? extra.deliveryLogs.map((l) => ({ ...l }))
       : [],
     receivables,
     payments,
-    orderAudits: Array.isArray((parsed as { orderAudits?: unknown }).orderAudits)
-      ? ((parsed as { orderAudits: OrderAuditEntry[] }).orderAudits as OrderAuditEntry[])
+    orderAudits: Array.isArray(extra.orderAudits)
+      ? extra.orderAudits.map((a) => ({ ...a }))
       : [],
     currentUserId: parsed.currentUserId,
   };
@@ -387,15 +442,51 @@ function readStorage(): PersistedState | null {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("norway-coffee-erp-demo-v7") ??
       window.localStorage.getItem("norway-coffee-erp-demo-v5") ??
       window.localStorage.getItem("norway-coffee-erp-demo-v4");
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { version?: number; orders?: unknown[] };
-    // v7＝第 10 週庫存保留；舊版強制重載完整種子
-    if (parsed?.version !== 7) {
-      return null;
+    const parsed = JSON.parse(raw) as {
+      version?: number;
+      orders?: unknown[];
+      shipments?: Shipment[];
+      shipmentDetails?: ShipmentDetail[];
+      deliveryLogs?: DeliveryStatusLog[];
+      stockReservations?: StockReservation[];
+      orderAudits?: OrderAuditEntry[];
+    };
+    // v8＝第 11 週出貨；v7 升檔補空出貨陣列
+    if (parsed?.version === 8) {
+      return {
+        ...(parsed as PersistedState),
+        shipments: Array.isArray(parsed.shipments) ? parsed.shipments : [],
+        shipmentDetails: Array.isArray(parsed.shipmentDetails)
+          ? parsed.shipmentDetails
+          : [],
+        deliveryLogs: Array.isArray(parsed.deliveryLogs)
+          ? parsed.deliveryLogs
+          : [],
+        stockReservations: Array.isArray(parsed.stockReservations)
+          ? parsed.stockReservations
+          : [],
+        orderAudits: Array.isArray(parsed.orderAudits) ? parsed.orderAudits : [],
+        orderDetails: Array.isArray(
+          (parsed as PersistedState).orderDetails,
+        )
+          ? (parsed as PersistedState).orderDetails.map((d) =>
+              ensureDetailShape(d),
+            )
+          : [],
+        orders: Array.isArray((parsed as PersistedState).orders)
+          ? (parsed as PersistedState).orders.map((o) => ensureOrderShape(o))
+          : [],
+      };
     }
-    return migrateFromLegacy(parsed);
+    if (parsed?.version === 7) {
+      const migrated = migrateFromLegacy(parsed);
+      return migrated;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -424,6 +515,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [stockReservations, setStockReservations] = useState<StockReservation[]>(
     seed.stockReservations ?? [],
   );
+  const [shipments, setShipments] = useState<Shipment[]>(seed.shipments ?? []);
+  const [shipmentDetails, setShipmentDetails] = useState<ShipmentDetail[]>(
+    seed.shipmentDetails ?? [],
+  );
+  const [deliveryLogs, setDeliveryLogs] = useState<DeliveryStatusLog[]>(
+    seed.deliveryLogs ?? [],
+  );
   const [receivables, setReceivables] = useState<Receivable[]>(
     seed.receivables,
   );
@@ -443,6 +541,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const paymentsRef = useRef(payments);
   const stockMovesRef = useRef(stockMoves);
   const stockReservationsRef = useRef(stockReservations);
+  const shipmentsRef = useRef(shipments);
+  const shipmentDetailsRef = useRef(shipmentDetails);
+  const deliveryLogsRef = useRef(deliveryLogs);
   const usersRef = useRef(users);
   const currentUserIdRef = useRef(currentUserId);
   ordersRef.current = orders;
@@ -456,6 +557,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   paymentsRef.current = payments;
   stockMovesRef.current = stockMoves;
   stockReservationsRef.current = stockReservations;
+  shipmentsRef.current = shipments;
+  shipmentDetailsRef.current = shipmentDetails;
+  deliveryLogsRef.current = deliveryLogs;
   usersRef.current = users;
   currentUserIdRef.current = currentUserId;
   const [hydrated, setHydrated] = useState(false);
@@ -485,6 +589,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setStockReservations(
         (stored.stockReservations ?? []).map((r) => ({ ...r })),
       );
+      setShipments((stored.shipments ?? []).map((s) => ({ ...s })));
+      setShipmentDetails(
+        (stored.shipmentDetails ?? []).map((d) => ({ ...d })),
+      );
+      setDeliveryLogs((stored.deliveryLogs ?? []).map((l) => ({ ...l })));
       setReceivables(stored.receivables.map((r) => ({ ...r })));
       setPayments(stored.payments.map((p) => ({ ...p })));
       setOrderAudits((stored.orderAudits ?? []).map((a) => ({ ...a })));
@@ -519,6 +628,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotationDetails,
       stockMoves,
       stockReservations,
+      shipments,
+      shipmentDetails,
+      deliveryLogs,
       receivables,
       payments,
       orderAudits,
@@ -536,6 +648,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quotationDetails,
     stockMoves,
     stockReservations,
+    shipments,
+    shipmentDetails,
+    deliveryLogs,
     receivables,
     orderAudits,
     payments,
@@ -560,6 +675,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setStockReservations(
           (parsed.stockReservations ?? []).map((r) => ({ ...r })),
         );
+        setShipments((parsed.shipments ?? []).map((s) => ({ ...s })));
+        setShipmentDetails(
+          (parsed.shipmentDetails ?? []).map((d) => ({ ...d })),
+        );
+        setDeliveryLogs((parsed.deliveryLogs ?? []).map((l) => ({ ...l })));
         setReceivables(parsed.receivables.map((r) => ({ ...r })));
         setPayments(parsed.payments.map((p) => ({ ...p })));
         setCurrentUserId(parsed.currentUserId);
@@ -783,6 +903,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (orderId: string, reason: string): OrderActionResult => {
       const order = ordersRef.current.find((o) => o.Order_ID === orderId);
       if (!order) return { ok: false, message: "找不到該訂單。" };
+      if (orderHasShipments(orderId, shipmentsRef.current)) {
+        return {
+          ok: false,
+          message:
+            "此訂單已有出貨單，本週不可沿用第 8 週取消；請保留出貨紀錄待管理者處理。",
+        };
+      }
       const user = activeUser();
       const result = cancelOrderRule(
         order,
@@ -822,6 +949,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (orderId: string, reason: string): OrderActionResult => {
       const order = ordersRef.current.find((o) => o.Order_ID === orderId);
       if (!order) return { ok: false, message: "找不到該訂單。" };
+      if (orderHasShipments(orderId, shipmentsRef.current)) {
+        return {
+          ok: false,
+          message:
+            "此訂單已有出貨單，本週不可沿用第 8 週重開；請保留出貨紀錄待管理者處理。",
+        };
+      }
       const user = activeUser();
       const result = reopenOrderRule(
         order,
@@ -919,6 +1053,127 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [orders, orderDetails, products, stockMoves, stockReservations, receivables, payments],
   );
 
+  const applyShipmentResult = useCallback((result: ShipmentActionResult) => {
+    if (result.shipments) {
+      shipmentsRef.current = result.shipments;
+      setShipments(result.shipments);
+    }
+    if (result.shipmentDetails) {
+      shipmentDetailsRef.current = result.shipmentDetails;
+      setShipmentDetails(result.shipmentDetails);
+    }
+    if (result.products) {
+      productsRef.current = result.products;
+      setProducts(result.products);
+    }
+    if (result.moves) {
+      stockMovesRef.current = result.moves;
+      setStockMoves(result.moves);
+    }
+    if (result.reservations) {
+      stockReservationsRef.current = result.reservations;
+      setStockReservations(result.reservations);
+    }
+    if (result.orderDetails) {
+      orderDetailsRef.current = result.orderDetails;
+      setOrderDetails(result.orderDetails);
+    }
+    if (result.order) {
+      ordersRef.current = ordersRef.current.map((o) =>
+        o.Order_ID === result.order!.Order_ID ? result.order! : o,
+      );
+      setOrders(ordersRef.current);
+    }
+    if (result.deliveryLogs) {
+      deliveryLogsRef.current = result.deliveryLogs;
+      setDeliveryLogs(result.deliveryLogs);
+    }
+  }, []);
+
+  const createShipmentFromOrder = useCallback(
+    (
+      input: Omit<CreateShipmentDraftInput, "role" | "user">,
+    ): ShipmentActionResult => {
+      const user = activeUser();
+      const result = createShipmentDraft(
+        { ...input, role: user.Role, user },
+        ordersRef.current,
+        orderDetailsRef.current,
+        stockReservationsRef.current,
+        productsRef.current,
+        shipmentsRef.current,
+        shipmentDetailsRef.current,
+      );
+      if (result.ok) applyShipmentResult(result);
+      return result;
+    },
+    [activeUser, applyShipmentResult],
+  );
+
+  const saveShipmentDraft = useCallback(
+    (
+      input: Omit<UpdateShipmentDraftInput, "role" | "user">,
+    ): ShipmentActionResult => {
+      const user = activeUser();
+      const result = updateShipmentDraft(
+        { ...input, role: user.Role, user },
+        ordersRef.current,
+        orderDetailsRef.current,
+        stockReservationsRef.current,
+        productsRef.current,
+        shipmentsRef.current,
+        shipmentDetailsRef.current,
+      );
+      if (result.ok) applyShipmentResult(result);
+      return result;
+    },
+    [activeUser, applyShipmentResult],
+  );
+
+  const postShipmentDoc = useCallback(
+    (
+      shipmentId: string,
+      options?: { receiptNote?: string },
+    ): ShipmentActionResult => {
+      const user = activeUser();
+      const result = postShipment(
+        shipmentId,
+        user.Role,
+        user,
+        ordersRef.current,
+        orderDetailsRef.current,
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+        shipmentsRef.current,
+        shipmentDetailsRef.current,
+        deliveryLogsRef.current,
+        options,
+      );
+      if (result.ok) applyShipmentResult(result);
+      return result;
+    },
+    [activeUser, applyShipmentResult],
+  );
+
+  const updateShipmentDelivery = useCallback(
+    (
+      input: Omit<UpdateDeliveryInput, "role" | "user">,
+    ): ShipmentActionResult => {
+      const user = activeUser();
+      const result = updateDeliveryStatus(
+        { ...input, role: user.Role, user },
+        shipmentsRef.current,
+        deliveryLogsRef.current,
+        productsRef.current,
+        stockReservationsRef.current,
+      );
+      if (result.ok) applyShipmentResult(result);
+      return result;
+    },
+    [activeUser, applyShipmentResult],
+  );
+
   const setOrderStatus = useCallback(
     (orderId: string, status: string) => {
       if (status === "已出貨" || status === "ship") {
@@ -974,6 +1229,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProducts(nextProducts);
     stockReservationsRef.current = [];
     setStockReservations([]);
+    shipmentsRef.current = [];
+    setShipments([]);
+    shipmentDetailsRef.current = [];
+    setShipmentDetails([]);
+    deliveryLogsRef.current = [];
+    setDeliveryLogs([]);
     // 清掉與教學品相關草稿／舊異動，避免干擾期初
     const kept = stockMovesRef.current.filter(
       (m) => m.Product_ID !== "P002" && m.Product_ID !== "P011",
@@ -1325,6 +1586,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotationDetailsRef.current = next.quotationDetails;
       stockMovesRef.current = next.stockMoves;
       stockReservationsRef.current = next.stockReservations ?? [];
+      shipmentsRef.current = next.shipments ?? [];
+      shipmentDetailsRef.current = next.shipmentDetails ?? [];
+      deliveryLogsRef.current = next.deliveryLogs ?? [];
       receivablesRef.current = next.receivables;
       paymentsRef.current = next.payments;
       orderAuditsRef.current = next.orderAudits ?? [];
@@ -1338,6 +1602,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setQuotationDetails(next.quotationDetails);
       setStockMoves(next.stockMoves);
       setStockReservations(next.stockReservations ?? []);
+      setShipments(next.shipments ?? []);
+      setShipmentDetails(next.shipmentDetails ?? []);
+      setDeliveryLogs(next.deliveryLogs ?? []);
       setReceivables(next.receivables);
       setPayments(next.payments);
       setOrderAudits(next.orderAudits ?? []);
@@ -1357,6 +1624,129 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const resetDemoData = useCallback(() => {
     applySeedLike(cloneSeed());
   }, [applySeedLike]);
+
+  /** 第 11 週起點＝第 10 週 I09 完成：SO-B 確認、P002 26/15/11、P011 8/1/7 */
+  const prepareWeek11Lab = useCallback(() => {
+    switchUser("U001");
+    resetDemoData();
+    prepareWeek10Lab();
+
+    const openA = createInventoryMove({
+      productId: "P002",
+      moveType: "期初",
+      qty: 20,
+      asDraft: true,
+      note: "W11 期初 P002",
+      sourceDocId: "OP-W11-001",
+    });
+    const openB = createInventoryMove({
+      productId: "P011",
+      moveType: "期初",
+      qty: 8,
+      asDraft: true,
+      note: "W11 期初 P011",
+      sourceDocId: "OP-W11-002",
+    });
+    if (openA.moves?.length) {
+      postInventoryMove(openA.moves[openA.moves.length - 1].Move_ID);
+    }
+    if (openB.moves?.length) {
+      postInventoryMove(openB.moves[openB.moves.length - 1].Move_ID);
+    }
+
+    const soA = convertAcceptedQuote("QT-20261118-001", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    const soB = convertAcceptedQuote("QT-20261118-002", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    const idA = soA.order?.Order_ID ?? "";
+    const idB = soB.order?.Order_ID ?? "";
+    saveDraftOrder(idA, {
+      deliveryAgreed: true,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+      shipToName: "教學收貨人",
+      shipToAddress: "台南市教學路 100 號",
+    });
+    saveDraftOrder(idB, {
+      deliveryAgreed: true,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+      shipToName: "教學收貨人",
+      shipToAddress: "台南市教學路 100 號",
+    });
+    confirmSalesOrder(idA);
+    createInventoryMove({
+      productId: "P002",
+      moveType: "入庫",
+      qty: 10,
+      asDraft: false,
+      note: "補貨 10",
+      sourceDocId: "IN-W11-001",
+    });
+    confirmSalesOrder(idB);
+    cancelSalesOrder(idA, "第11週案例取消 SO-A");
+    createInventoryMove({
+      productId: "P002",
+      moveType: "出庫",
+      qty: 3,
+      asDraft: false,
+      note: "非銷售領用 3",
+      sourceDocId: "OUT-W11-001",
+    });
+    createInventoryMove({
+      productId: "P002",
+      moveType: "盤點調整",
+      qty: 0,
+      countedQty: 26,
+      asDraft: false,
+      note: "實盤 26",
+      reason: "盤點差異",
+      sourceDocId: "ST-W11-001",
+    });
+    reopenSalesOrder(idB, "改量驗收");
+    const dP002 = orderDetailsRef.current.find(
+      (d) => d.Order_ID === idB && d.Product_ID === "P002",
+    );
+    if (dP002) {
+      saveDraftOrder(idB, {
+        qtyByDetailId: { [dP002.Detail_ID]: 15 },
+        deliveryAgreed: true,
+        requestedDate: "2026-11-23",
+        promisedDate: "2026-11-23",
+        shipToName: "教學收貨人",
+        shipToAddress: "台南市教學路 100 號",
+      });
+    }
+    confirmSalesOrder(idB);
+    shipmentsRef.current = [];
+    setShipments([]);
+    shipmentDetailsRef.current = [];
+    setShipmentDetails([]);
+    deliveryLogsRef.current = [];
+    setDeliveryLogs([]);
+    return {
+      ok: true,
+      message: `第11週起點就緒：SO-B=${idB}（P002 26/15/11 · P011 8/1/7）`,
+      orderId: idB,
+    };
+  }, [
+    switchUser,
+    resetDemoData,
+    prepareWeek10Lab,
+    createInventoryMove,
+    postInventoryMove,
+    convertAcceptedQuote,
+    saveDraftOrder,
+    confirmSalesOrder,
+    cancelSalesOrder,
+    reopenSalesOrder,
+  ]);
 
   const loadBaselineData = useCallback(() => {
     const next = cloneSeed();
@@ -1385,6 +1775,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotationDetails,
       stockMoves: stockMovesRef.current,
       stockReservations: stockReservationsRef.current,
+      shipments: shipmentsRef.current,
+      shipmentDetails: shipmentDetailsRef.current,
+      deliveryLogs: deliveryLogsRef.current,
       receivables: receivablesRef.current,
       payments: paymentsRef.current,
       orderAudits: orderAuditsRef.current,
@@ -1397,18 +1790,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (raw: string) => {
       try {
         const parsed = JSON.parse(raw) as { version?: number };
-        // v7 直接套用；舊版走 migrate
-        if (parsed?.version === STORAGE_VERSION) {
+        if (parsed?.version === STORAGE_VERSION || parsed?.version === 7) {
           const full = parsed as PersistedState;
           const rest = { ...full };
           delete (rest as { version?: number }).version;
           if (!Array.isArray(rest.stockReservations)) {
             rest.stockReservations = [];
           }
+          if (!Array.isArray(rest.shipments)) rest.shipments = [];
+          if (!Array.isArray(rest.shipmentDetails)) rest.shipmentDetails = [];
+          if (!Array.isArray(rest.deliveryLogs)) rest.deliveryLogs = [];
           applySeedLike(rest as Omit<PersistedState, "version">);
           return {
             ok: true,
-            message: `已匯入 ${full.orders.length} 張訂單、${full.quotations.length} 張報價、${(full.stockReservations ?? []).length} 筆保留。`,
+            message: `已匯入 ${full.orders.length} 張訂單、${(full.shipments ?? []).length} 張出貨、${(full.stockReservations ?? []).length} 筆保留。`,
           };
         }
         const migrated = migrateFromLegacy(
@@ -1417,7 +1812,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!migrated) {
           return {
             ok: false,
-            message: "無法匯入：請使用本系統匯出的 v7 JSON。",
+            message: "無法匯入：請使用本系統匯出的 v8／v7 JSON。",
           };
         }
         const rest = { ...migrated };
@@ -1446,6 +1841,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     orderDetails,
     stockMoves,
     stockReservations,
+    shipments,
+    shipmentDetails,
+    deliveryLogs,
     setProducts,
     setStockMoves,
     setStockReservations,
@@ -1466,8 +1864,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     reopenSalesOrder,
     shipConfirmedOrder,
     unshipOrder,
+    createShipmentFromOrder,
+    saveShipmentDraft,
+    postShipmentDoc,
+    updateShipmentDelivery,
     adjustInventory,
     prepareWeek10Lab,
+    prepareWeek11Lab,
     createInventoryMove,
     postInventoryMove,
     setProductSafety,
