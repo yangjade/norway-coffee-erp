@@ -455,36 +455,72 @@ function readStorage(): PersistedState | null {
       stockReservations?: StockReservation[];
       orderAudits?: OrderAuditEntry[];
     };
-    // v8＝第 11 週出貨；v7 升檔補空出貨陣列
-    if (parsed?.version === 8) {
+    // v8＝第 11 週出貨；v7 升檔補空出貨陣列；缺欄一律容錯成 []
+    if (parsed?.version === 8 || parsed?.version === 7) {
+      const full = parsed as Partial<PersistedState> & { version?: number };
+      const seed = cloneSeed();
+      const products = Array.isArray(full.products)
+        ? normalizeProducts(full.products as unknown[])
+        : seed.products;
+      if (!products.length) return null;
+      const users = Array.isArray(full.users) && full.users.length
+        ? (full.users as AppUser[])
+        : seed.users;
       return {
-        ...(parsed as PersistedState),
-        shipments: Array.isArray(parsed.shipments) ? parsed.shipments : [],
-        shipmentDetails: Array.isArray(parsed.shipmentDetails)
-          ? parsed.shipmentDetails
-          : [],
-        deliveryLogs: Array.isArray(parsed.deliveryLogs)
-          ? parsed.deliveryLogs
-          : [],
-        stockReservations: Array.isArray(parsed.stockReservations)
-          ? parsed.stockReservations
-          : [],
-        orderAudits: Array.isArray(parsed.orderAudits) ? parsed.orderAudits : [],
-        orderDetails: Array.isArray(
-          (parsed as PersistedState).orderDetails,
-        )
-          ? (parsed as PersistedState).orderDetails.map((d) =>
+        version: STORAGE_VERSION,
+        users,
+        orders: Array.isArray(full.orders)
+          ? (full.orders as SalesOrder[]).map((o) => ensureOrderShape(o))
+          : seed.orders,
+        orderDetails: Array.isArray(full.orderDetails)
+          ? (full.orderDetails as SalesOrderDetail[]).map((d) =>
               ensureDetailShape(d),
             )
+          : seed.orderDetails,
+        customers:
+          Array.isArray(full.customers) && full.customers.length
+            ? (full.customers as Customer[])
+            : seed.customers,
+        products,
+        quotations: Array.isArray(full.quotations)
+          ? (full.quotations as Quotation[])
+          : seed.quotations,
+        quotationDetails: Array.isArray(full.quotationDetails)
+          ? (full.quotationDetails as QuotationDetail[])
+          : seed.quotationDetails,
+        stockMoves: Array.isArray(full.stockMoves)
+          ? (full.stockMoves as StockMove[])
+          : seed.stockMoves,
+        stockReservations: Array.isArray(full.stockReservations)
+          ? (full.stockReservations as StockReservation[])
           : [],
-        orders: Array.isArray((parsed as PersistedState).orders)
-          ? (parsed as PersistedState).orders.map((o) => ensureOrderShape(o))
+        shipments: Array.isArray(full.shipments)
+          ? (full.shipments as Shipment[]).filter(
+              (s) => s && typeof s.Shipment_ID === "string",
+            )
           : [],
+        shipmentDetails: Array.isArray(full.shipmentDetails)
+          ? (full.shipmentDetails as ShipmentDetail[]).filter(
+              (d) => d && typeof d.Shipment_ID === "string",
+            )
+          : [],
+        deliveryLogs: Array.isArray(full.deliveryLogs)
+          ? (full.deliveryLogs as DeliveryStatusLog[])
+          : [],
+        receivables: Array.isArray(full.receivables)
+          ? (full.receivables as Receivable[])
+          : seed.receivables,
+        payments: Array.isArray(full.payments)
+          ? (full.payments as Payment[])
+          : seed.payments,
+        orderAudits: Array.isArray(full.orderAudits)
+          ? (full.orderAudits as OrderAuditEntry[])
+          : [],
+        currentUserId:
+          typeof full.currentUserId === "string"
+            ? full.currentUserId
+            : "U001",
       };
-    }
-    if (parsed?.version === 7) {
-      const migrated = migrateFromLegacy(parsed);
-      return migrated;
     }
     return null;
   } catch {
@@ -568,51 +604,162 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      window.localStorage.removeItem("norway-coffee-erp-demo-v1");
-    } catch {
-      /* ignore */
-    }
-    const stored = readStorage();
-    if (stored) {
-      setUsers(stored.users.map((u) => ({ ...u })));
-      setOrders(stored.orders.map((o) => ({ ...o })));
-      setOrderDetails(stored.orderDetails.map((d) => ({ ...d })));
-      setCustomers(stored.customers.map((c) => ({ ...c })));
-      setProducts(stored.products.map((p) => ({ ...p })));
+      try {
+        window.localStorage.removeItem("norway-coffee-erp-demo-v1");
+      } catch {
+        /* ignore */
+      }
+      const stored = readStorage();
+      const seedData = cloneSeed();
+      const src = stored ?? seedData;
+      // 一律以陣列容錯套用，避免缺欄 .map 拋錯導致永遠卡在「載入中」白屏
+      const usersSafe = Array.isArray(src.users) ? src.users : seedData.users;
+      const ordersSafe = Array.isArray(src.orders)
+        ? src.orders.map((o) => ensureOrderShape(o))
+        : seedData.orders;
+      const detailsSafe = Array.isArray(src.orderDetails)
+        ? src.orderDetails.map((d) => ensureDetailShape(d))
+        : seedData.orderDetails;
+      const customersSafe = Array.isArray(src.customers)
+        ? src.customers
+        : seedData.customers;
+      const productsSafe = Array.isArray(src.products)
+        ? src.products
+        : seedData.products;
+      const quotesSafe = Array.isArray(src.quotations)
+        ? src.quotations
+        : seedData.quotations;
+      const qDetailsSafe = Array.isArray(src.quotationDetails)
+        ? src.quotationDetails
+        : seedData.quotationDetails;
+      const movesSafe = Array.isArray(src.stockMoves)
+        ? src.stockMoves
+        : seedData.stockMoves;
+      const reservesSafe = Array.isArray(src.stockReservations)
+        ? src.stockReservations
+        : [];
+      const shipsSafe = Array.isArray(src.shipments)
+        ? src.shipments.filter((s) => s && typeof s.Shipment_ID === "string")
+        : [];
+      const shipDetailsSafe = Array.isArray(src.shipmentDetails)
+        ? src.shipmentDetails.filter(
+            (d) => d && typeof d.Shipment_ID === "string",
+          )
+        : [];
+      const logsSafe = Array.isArray(src.deliveryLogs) ? src.deliveryLogs : [];
+      const arSafe = Array.isArray(src.receivables)
+        ? src.receivables
+        : seedData.receivables;
+      const paySafe = Array.isArray(src.payments)
+        ? src.payments
+        : seedData.payments;
+      const auditsSafe = Array.isArray(src.orderAudits) ? src.orderAudits : [];
+
+      usersRef.current = usersSafe.map((u) => ({ ...u }));
+      ordersRef.current = ordersSafe.map((o) => ({ ...o }));
+      orderDetailsRef.current = detailsSafe.map((d) => ({ ...d }));
+      customersRef.current = customersSafe.map((c) => ({ ...c }));
+      productsRef.current = productsSafe.map((p) => ({ ...p }));
       const scanned = applyExpiryScan(
-        stored.quotations.map((q) => ({ ...q })),
+        quotesSafe.map((q) => ({ ...q })),
         todayLocalDate(),
       );
-      setQuotations(scanned.quotations);
-      setQuotationDetails(stored.quotationDetails.map((d) => ({ ...d })));
-      setStockMoves(stored.stockMoves.map((m) => ({ ...m })));
-      setStockReservations(
-        (stored.stockReservations ?? []).map((r) => ({ ...r })),
-      );
-      setShipments((stored.shipments ?? []).map((s) => ({ ...s })));
-      setShipmentDetails(
-        (stored.shipmentDetails ?? []).map((d) => ({ ...d })),
-      );
-      setDeliveryLogs((stored.deliveryLogs ?? []).map((l) => ({ ...l })));
-      setReceivables(stored.receivables.map((r) => ({ ...r })));
-      setPayments(stored.payments.map((p) => ({ ...p })));
-      setOrderAudits((stored.orderAudits ?? []).map((a) => ({ ...a })));
-      const active =
-        stored.users.find((u) => u.User_ID === stored.currentUserId)
+      quotationsRef.current = scanned.quotations;
+      quotationDetailsRef.current = qDetailsSafe.map((d) => ({ ...d }));
+      stockMovesRef.current = movesSafe.map((m) => ({ ...m }));
+      stockReservationsRef.current = reservesSafe.map((r) => ({ ...r }));
+      shipmentsRef.current = shipsSafe.map((s) => ({ ...s }));
+      shipmentDetailsRef.current = shipDetailsSafe.map((d) => ({ ...d }));
+      deliveryLogsRef.current = logsSafe.map((l) => ({ ...l }));
+      receivablesRef.current = arSafe.map((r) => ({ ...r }));
+      paymentsRef.current = paySafe.map((p) => ({ ...p }));
+      orderAuditsRef.current = auditsSafe.map((a) => ({ ...a }));
+      const activeId =
+        usersRef.current.find((u) => u.User_ID === src.currentUserId)
           ?.Is_Active !== false
-          ? stored.currentUserId
+          ? src.currentUserId || "U001"
           : "U001";
-      setCurrentUserId(active);
+      currentUserIdRef.current = activeId;
+
+      setUsers(usersRef.current);
+      setOrders(ordersRef.current);
+      setOrderDetails(orderDetailsRef.current);
+      setCustomers(customersRef.current);
+      setProducts(productsRef.current);
+      setQuotations(quotationsRef.current);
+      setQuotationDetails(quotationDetailsRef.current);
+      setStockMoves(stockMovesRef.current);
+      setStockReservations(stockReservationsRef.current);
+      setShipments(shipmentsRef.current);
+      setShipmentDetails(shipmentDetailsRef.current);
+      setDeliveryLogs(deliveryLogsRef.current);
+      setReceivables(receivablesRef.current);
+      setPayments(paymentsRef.current);
+      setOrderAudits(orderAuditsRef.current);
+      setCurrentUserId(activeId);
+      writeStorage({
+        version: STORAGE_VERSION,
+        users: usersRef.current,
+        orders: ordersRef.current,
+        orderDetails: orderDetailsRef.current,
+        customers: customersRef.current,
+        products: productsRef.current,
+        quotations: quotationsRef.current,
+        quotationDetails: quotationDetailsRef.current,
+        stockMoves: stockMovesRef.current,
+        stockReservations: stockReservationsRef.current,
+        shipments: shipmentsRef.current,
+        shipmentDetails: shipmentDetailsRef.current,
+        deliveryLogs: deliveryLogsRef.current,
+        receivables: receivablesRef.current,
+        payments: paymentsRef.current,
+        orderAudits: orderAuditsRef.current,
+        currentUserId: activeId,
+      });
       setLastSavedAt(Date.now());
-    } else {
-      const seedData = cloneSeed();
-      const scanned = applyExpiryScan(seedData.quotations, todayLocalDate());
-      seedData.quotations = scanned.quotations;
-      setQuotations(scanned.quotations);
-      writeStorage({ version: STORAGE_VERSION, ...seedData });
-      setLastSavedAt(Date.now());
+    } catch {
+      // 任何 schema 例外都回落種子，絕不能卡住 hydrated＝白屏
+      try {
+        const seedData = cloneSeed();
+        usersRef.current = seedData.users;
+        ordersRef.current = seedData.orders;
+        orderDetailsRef.current = seedData.orderDetails;
+        customersRef.current = seedData.customers;
+        productsRef.current = seedData.products;
+        quotationsRef.current = seedData.quotations;
+        quotationDetailsRef.current = seedData.quotationDetails;
+        stockMovesRef.current = seedData.stockMoves;
+        stockReservationsRef.current = [];
+        shipmentsRef.current = [];
+        shipmentDetailsRef.current = [];
+        deliveryLogsRef.current = [];
+        receivablesRef.current = seedData.receivables;
+        paymentsRef.current = seedData.payments;
+        orderAuditsRef.current = [];
+        currentUserIdRef.current = "U001";
+        setUsers(seedData.users);
+        setOrders(seedData.orders);
+        setOrderDetails(seedData.orderDetails);
+        setCustomers(seedData.customers);
+        setProducts(seedData.products);
+        setQuotations(seedData.quotations);
+        setQuotationDetails(seedData.quotationDetails);
+        setStockMoves(seedData.stockMoves);
+        setStockReservations([]);
+        setShipments([]);
+        setShipmentDetails([]);
+        setDeliveryLogs([]);
+        setReceivables(seedData.receivables);
+        setPayments(seedData.payments);
+        setOrderAudits([]);
+        setCurrentUserId("U001");
+        writeStorage({ version: STORAGE_VERSION, ...seedData });
+      } catch {
+        /* last resort: still mark hydrated */
+      }
+    } finally {
+      setHydrated(true);
     }
-    setHydrated(true);
   }, []);
 
   useEffect(() => {
@@ -1323,6 +1470,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  /** 對外 setState 必須同步 ref，否則驗收／出貨讀到過期資料或漏擋盤點異常 */
+  const setProductsSynced: Dispatch<SetStateAction<Product[]>> = useCallback(
+    (action) => {
+      setProducts((prev) => {
+        const next = typeof action === "function" ? action(prev) : action;
+        productsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  const setStockMovesSynced: Dispatch<SetStateAction<StockMove[]>> =
+    useCallback((action) => {
+      setStockMoves((prev) => {
+        const next = typeof action === "function" ? action(prev) : action;
+        stockMovesRef.current = next;
+        return next;
+      });
+    }, []);
+  const setStockReservationsSynced: Dispatch<
+    SetStateAction<StockReservation[]>
+  > = useCallback((action) => {
+    setStockReservations((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      stockReservationsRef.current = next;
+      return next;
+    });
+  }, []);
+
   const recordArPayment = useCallback(
     (
       arId: string,
@@ -1844,9 +2020,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     shipments,
     shipmentDetails,
     deliveryLogs,
-    setProducts,
-    setStockMoves,
-    setStockReservations,
+    setProducts: setProductsSynced,
+    setStockMoves: setStockMovesSynced,
+    setStockReservations: setStockReservationsSynced,
     receivables,
     payments,
     orderAudits,

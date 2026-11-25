@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Component, useMemo, useState, type ReactNode } from "react";
 import { useApp } from "@/lib/app-context";
 import { Notice, PageHeader } from "@/components/Notice";
 import {
@@ -19,17 +19,51 @@ import type {
 
 type Tab = "list" | "create" | "detail";
 
-export default function ShippingPage() {
+class ShippingErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: string | null }
+> {
+  state = { error: null as string | null };
+  static getDerivedStateFromError(err: unknown) {
+    return {
+      error: err instanceof Error ? err.message : "出貨頁發生未預期錯誤",
+    };
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="space-y-4 animate-rise" data-week11="shipping-error">
+          <PageHeader title="出貨與物流" description="第 11 週" />
+          <Notice kind="error" title="出貨頁無法顯示">
+            {this.state.error}
+            。可能是本機舊版資料不相容。請至設定或驗收區重設樣本後再試；空白列表應顯示空狀態而非白屏。
+          </Notice>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/acceptance/#sh01" className="btn-primary">
+              出貨驗收 T01–T12
+            </Link>
+            <Link href="/" className="btn-ghost">
+              返回首頁
+            </Link>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ShippingPageInner() {
   const app = useApp();
   const {
-    orders,
-    orderDetails,
-    products,
-    stockReservations,
-    shipments,
-    shipmentDetails,
-    deliveryLogs,
-    customers,
+    orders: ordersRaw,
+    orderDetails: detailsRaw,
+    products: productsRaw,
+    stockReservations: reservesRaw,
+    shipments: shipmentsRaw,
+    shipmentDetails: shipDetailsRaw,
+    deliveryLogs: logsRaw,
+    customers: customersRaw,
     currentUser,
     hydrated,
     customerName,
@@ -39,6 +73,20 @@ export default function ShippingPage() {
     updateShipmentDelivery,
     inventorySnap,
   } = app;
+
+  // 容錯：舊 schema／缺欄不可讓 .map 炸成白屏
+  const orders = ordersRaw ?? [];
+  const orderDetails = detailsRaw ?? [];
+  const products = productsRaw ?? [];
+  const stockReservations = reservesRaw ?? [];
+  const shipments = Array.isArray(shipmentsRaw)
+    ? shipmentsRaw.filter((s) => s && typeof s.Shipment_ID === "string")
+    : [];
+  const shipmentDetails = Array.isArray(shipDetailsRaw)
+    ? shipDetailsRaw
+    : [];
+  const deliveryLogs = Array.isArray(logsRaw) ? logsRaw : [];
+  const customers = customersRaw ?? [];
 
   const [tab, setTab] = useState<Tab>("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -54,31 +102,39 @@ export default function ShippingPage() {
   const [tracking, setTracking] = useState("DEMO-0001");
   const [exceptionNote, setExceptionNote] = useState("");
 
-  const filtered = useMemo(
-    () =>
-      filterShipments(shipments, orders, customers, {
+  const filtered = useMemo(() => {
+    try {
+      return filterShipments(shipments, orders, customers, {
         q,
         status: statusF,
         delivery: deliveryF,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
-      }).sort((a, b) => b.Shipment_ID.localeCompare(a.Shipment_ID)),
-    [shipments, orders, customers, q, statusF, deliveryF, dateFrom, dateTo],
-  );
+      }).sort((a, b) =>
+        String(b.Shipment_ID ?? "").localeCompare(String(a.Shipment_ID ?? "")),
+      );
+    } catch {
+      return [];
+    }
+  }, [shipments, orders, customers, q, statusF, deliveryF, dateFrom, dateTo]);
 
   const shipableOrders = useMemo(() => {
-    return orders
-      .filter((o) => o.Order_Status === "Confirmed")
-      .map((o) => ({
-        order: o,
-        preview: previewShipableOrder(
-          o,
-          orderDetails,
-          stockReservations,
-          products,
-        ),
-      }))
-      .filter((x) => x.preview.ok);
+    try {
+      return orders
+        .filter((o) => o?.Order_Status === "Confirmed")
+        .map((o) => ({
+          order: o,
+          preview: previewShipableOrder(
+            o,
+            orderDetails,
+            stockReservations,
+            products,
+          ),
+        }))
+        .filter((x) => x.preview.ok);
+    } catch {
+      return [];
+    }
   }, [orders, orderDetails, stockReservations, products]);
 
   const selected: Shipment | undefined = selectedId
@@ -92,7 +148,7 @@ export default function ShippingPage() {
   const selectedLogs = selected
     ? deliveryLogs
         .filter((l) => l.Shipment_ID === selected.Shipment_ID)
-        .sort((a, b) => a.At.localeCompare(b.At))
+        .sort((a, b) => String(a.At).localeCompare(String(b.At)))
     : [];
 
   function openDetail(id: string) {
@@ -163,7 +219,8 @@ export default function ShippingPage() {
           : to === "Delivered"
             ? "物流確認交付"
             : undefined,
-      exceptionNote: to === "Exception" ? exceptionNote || "地址無人收件" : undefined,
+      exceptionNote:
+        to === "Exception" ? exceptionNote || "地址無人收件" : undefined,
     });
     if (!result.ok) {
       setError(result.message ?? "物流更新失敗");
@@ -174,14 +231,14 @@ export default function ShippingPage() {
 
   if (!hydrated) {
     return (
-      <div className="space-y-4 animate-rise">
+      <div className="space-y-4 animate-rise" data-week11="shipping-loading">
         <PageHeader title="出貨與物流" description="第 11 週" />
-        <Notice kind="info">正在載入本機資料…</Notice>
+        <Notice kind="info">正在載入本機資料…（若久無回應請重設樣本）</Notice>
       </div>
     );
   }
 
-  const isAdmin = currentUser.Role === "Admin";
+  const isAdmin = currentUser?.Role === "Admin";
   const snapP002 = inventorySnap("P002");
   const snapP011 = inventorySnap("P011");
 
@@ -208,7 +265,7 @@ export default function ShippingPage() {
       <Notice kind="info">
         僅 Confirmed＋有效保留可建草稿。Staff 可建草稿／更新物流；僅 Admin
         可過帳。物流 Exception／Delivered 不改庫存、不推定收款。本機 storage
-        v8。
+        v8（舊 v7 會自動升檔）。
       </Notice>
 
       <div className="grid gap-2 sm:grid-cols-2 text-xs tabular-nums text-[var(--muted)]">
@@ -260,13 +317,13 @@ export default function ShippingPage() {
         <section className="space-y-3">
           <div className="flex flex-wrap gap-2 text-sm">
             <input
-              className="input min-w-[10rem] flex-1"
+              className="field min-w-[10rem] flex-1"
               placeholder="出貨／訂單／客戶／追蹤號"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
             <select
-              className="input"
+              className="field"
               value={statusF}
               onChange={(e) =>
                 setStatusF(e.target.value as ShipmentStatus | "")
@@ -278,7 +335,7 @@ export default function ShippingPage() {
               <option value="Cancelled">Cancelled</option>
             </select>
             <select
-              className="input"
+              className="field"
               value={deliveryF}
               onChange={(e) =>
                 setDeliveryF(e.target.value as DeliveryStatus | "")
@@ -292,20 +349,28 @@ export default function ShippingPage() {
             </select>
             <input
               type="date"
-              className="input"
+              className="field"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
             />
             <input
               type="date"
-              className="input"
+              className="field"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
             />
           </div>
           {filtered.length === 0 ? (
-            <Notice kind="empty">
-              尚無符合條件出貨單。可從「建立草稿」對 Confirmed＋已保留訂單建立。
+            <Notice kind="empty" title="尚無出貨單">
+              沒有符合條件的出貨資料（含尚未建立任何出貨單）。請改到「建立草稿」，從
+              Confirmed＋已保留訂單建立；或至{" "}
+              <Link
+                href="/acceptance/#sh01"
+                className="text-[var(--brand)] underline"
+              >
+                驗收 T01–T12
+              </Link>{" "}
+              一鍵準備教學案例。
             </Notice>
           ) : (
             <div className="table-shell">
@@ -376,13 +441,14 @@ export default function ShippingPage() {
             從可出貨訂單建立草稿
           </h2>
           {shipableOrders.length === 0 ? (
-            <Notice kind="empty">
-              未確認／未配置／已出完 — 目前沒有可建立出貨的訂單。
+            <Notice kind="empty" title="沒有可出貨訂單">
+              未確認／未配置／已出完 — 目前沒有可建立出貨的訂單。請先完成第 10
+              週確認＋保留，或執行驗收準備案例。
             </Notice>
           ) : (
             <>
               <select
-                className="input w-full max-w-xl"
+                className="field w-full max-w-xl"
                 value={createOrderId}
                 onChange={(e) => setCreateOrderId(e.target.value)}
               >
@@ -399,13 +465,13 @@ export default function ShippingPage() {
               </select>
               <div className="flex flex-wrap gap-2">
                 <input
-                  className="input"
+                  className="field"
                   placeholder="承運人"
                   value={carrier}
                   onChange={(e) => setCarrier(e.target.value)}
                 />
                 <input
-                  className="input"
+                  className="field"
                   placeholder="追蹤號"
                   value={tracking}
                   onChange={(e) => setTracking(e.target.value)}
@@ -422,7 +488,9 @@ export default function ShippingPage() {
       {tab === "detail" && (
         <section className="space-y-3">
           {!selected ? (
-            <Notice kind="empty">請從列表選擇出貨單</Notice>
+            <Notice kind="empty" title="尚未選擇出貨單">
+              請從「出貨列表」點選一筆，或先「建立草稿」。
+            </Notice>
           ) : (
             <>
               <div className="panel grid gap-2 px-4 py-3.5 text-sm sm:grid-cols-2">
@@ -509,23 +577,13 @@ export default function ShippingPage() {
               <div className="flex flex-wrap gap-2">
                 {selected.Shipment_Status === "Draft" && (
                   <>
-                    {isAdmin ? (
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        onClick={postDoc}
-                      >
-                        Admin 出貨過帳
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn-primary opacity-60"
-                        onClick={postDoc}
-                      >
-                        嘗試過帳（Staff 應拒）
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={postDoc}
+                    >
+                      {isAdmin ? "Admin 出貨過帳" : "嘗試過帳（Staff 應拒）"}
+                    </button>
                     <button
                       type="button"
                       className="btn-ghost"
@@ -578,7 +636,7 @@ export default function ShippingPage() {
               </div>
               {selected.Shipment_Status === "Posted" && (
                 <input
-                  className="input w-full max-w-xl"
+                  className="field w-full max-w-xl"
                   placeholder="異常原因（Exception）"
                   value={exceptionNote}
                   onChange={(e) => setExceptionNote(e.target.value)}
@@ -605,5 +663,13 @@ export default function ShippingPage() {
         </section>
       )}
     </div>
+  );
+}
+
+export default function ShippingPage() {
+  return (
+    <ShippingErrorBoundary>
+      <ShippingPageInner />
+    </ShippingErrorBoundary>
   );
 }
