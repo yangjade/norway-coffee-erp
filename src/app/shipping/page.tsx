@@ -72,6 +72,8 @@ function ShippingPageInner() {
     postShipmentDoc,
     updateShipmentDelivery,
     inventorySnap,
+    resetDemoData,
+    prepareWeek11Lab,
   } = app;
 
   // 容錯：舊 schema／缺欄不可讓 .map 炸成白屏
@@ -264,9 +266,37 @@ function ShippingPageInner() {
 
       <Notice kind="info">
         僅 Confirmed＋有效保留可建草稿。Staff 可建草稿／更新物流；僅 Admin
-        可過帳。物流 Exception／Delivered 不改庫存、不推定收款。本機 storage
-        v8（舊 v7 會自動升檔）。
+        可過帳。物流狀態 Pending／InTransit（運送中）／Delivered（已送達）／Exception
+        與過帳分開，可更新並留歷程。樣本含 SO-W11-RDY（可建草稿）、SH-20261125-001
+        Draft（可過帳）及四態物流範例；重設樣本後仍在。
       </Notice>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => {
+            resetDemoData();
+            setFlash("已重設樣本（含出貨／物流示範）");
+            setError(null);
+            setTab("list");
+            setSelectedId("SH-20261125-001");
+          }}
+        >
+          重設出貨示範
+        </button>
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={() => {
+            const r = prepareWeek11Lab();
+            setFlash(r.message ?? "第11週起點就緒");
+            setError(null);
+            setTab("create");
+          }}
+        >
+          準備第11週案例（SO-B）
+        </button>
+      </div>
 
       <div className="grid gap-2 sm:grid-cols-2 text-xs tabular-nums text-[var(--muted)]">
         <p>
@@ -419,8 +449,10 @@ function ShippingPageInner() {
                           {s.Shipment_Status})
                         </td>
                         <td>
-                          {deliveryStatusLabelZh(s.Delivery_Status)} (
-                          {s.Delivery_Status})
+                          {deliveryStatusLabelZh(s.Delivery_Status)}
+                          <span className="ml-1 text-[10px] text-[var(--muted)]">
+                            {s.Delivery_Status}
+                          </span>
                         </td>
                         <td className="font-mono text-xs">
                           {s.Tracking_No ?? "—"}
@@ -442,8 +474,15 @@ function ShippingPageInner() {
           </h2>
           {shipableOrders.length === 0 ? (
             <Notice kind="empty" title="沒有可出貨訂單">
-              未確認／未配置／已出完 — 目前沒有可建立出貨的訂單。請先完成第 10
-              週確認＋保留，或執行驗收準備案例。
+              未確認／未配置／已出完 — 目前沒有可建立出貨的訂單。請按「重設出貨示範」或
+              「準備第11週案例（SO-B）」，或至{" "}
+              <Link
+                href="/acceptance/#sh01"
+                className="text-[var(--brand)] underline"
+              >
+                驗收 T01–T12
+              </Link>
+              。
             </Notice>
           ) : (
             <>
