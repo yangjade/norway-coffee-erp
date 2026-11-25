@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { Week8Acceptance } from "@/components/Week8Acceptance";
 import { Week10Acceptance } from "@/components/Week10Acceptance";
+import { Week11Acceptance } from "@/components/Week11Acceptance";
 import { WeekTAcceptance } from "@/components/WeekTAcceptance";
 import { useApp } from "@/lib/app-context";
 import { BASE_DATE } from "@/lib/sample-data";
@@ -424,6 +425,8 @@ export function ClassroomSim({ embedded = false }: { embedded?: boolean }) {
           <Week8Acceptance />
 
           <Week10Acceptance />
+
+          <Week11Acceptance />
 
           <div className="border-t border-[var(--border)] px-4 pb-1 pt-3 sm:px-5">
             <p className="text-[11px] font-medium tracking-[0.08em] text-[var(--brand)]">

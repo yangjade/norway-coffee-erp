@@ -178,12 +178,17 @@ export function ensureDetailShape(raw: SalesOrderDetail): SalesOrderDetail {
       : raw.Subtotal != null
         ? Math.round(raw.Subtotal)
         : computeLineAmount(raw.Qty, raw.Unit_Price, rate);
+  const shipped =
+    typeof raw.Shipped_Qty === "number" && Number.isFinite(raw.Shipped_Qty)
+      ? Math.max(0, Math.floor(raw.Shipped_Qty))
+      : 0;
   return {
     ...raw,
     Product_Name_Snapshot: raw.Product_Name_Snapshot || raw.Product_ID,
     Unit_Snapshot: raw.Unit_Snapshot || "件",
     Discount_Rate: rate,
     Line_Amount: line,
+    Shipped_Qty: shipped,
   };
 }
 

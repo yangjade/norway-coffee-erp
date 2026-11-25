@@ -55,9 +55,10 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "課堂驗收",
     items: [
       { href: "/acceptance", label: "驗收總覽" },
-      { href: "/acceptance#t01", label: "T01–T12 驗收" },
-      { href: "/acceptance#s01", label: "S01–S13 訂單驗收" },
-      { href: "/acceptance#i01", label: "I01–I17 庫存驗收" },
+      { href: "/acceptance#t01", label: "T01–T12 客戶" },
+      { href: "/acceptance#s01", label: "S01–S13 訂單" },
+      { href: "/acceptance#i01", label: "I01–I17 庫存" },
+      { href: "/acceptance#sh01", label: "T01–T12 出貨" },
     ],
   },
   {
@@ -70,8 +71,8 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-export const APP_VERSION = "v1.3 (W10)";
-export const APP_VERSION_NOTE = "T／S／I 三套一鍵驗收＋四分頁庫存";
+export const APP_VERSION = "v1.4 (W11)";
+export const APP_VERSION_NOTE = "出貨過帳＋物流＋T01–T12 一鍵";
 
 export const BREADCRUMB_LABELS: Record<string, string> = {
   "": "主頁",

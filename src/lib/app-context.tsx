@@ -83,11 +83,23 @@ import {
   type QuoteActionResult,
 } from "./quotation-rules";
 import { computeKpi } from "./kpi";
+import {
+  createShipmentDraft,
+  orderHasShipments,
+  postShipment,
+  updateDeliveryStatus,
+  updateShipmentDraft,
+  type CreateShipmentDraftInput,
+  type ShipmentActionResult,
+  type UpdateDeliveryInput,
+  type UpdateShipmentDraftInput,
+} from "./shipment-rules";
 import type {
   AppUser,
   Customer,
   CustomerCreateInput,
   CustomerUpdateInput,
+  DeliveryStatusLog,
   OrderAuditEntry,
   Payment,
   Product,
@@ -101,12 +113,14 @@ import type {
   Receivable,
   SalesOrder,
   SalesOrderDetail,
+  Shipment,
+  ShipmentDetail,
   StockMove,
   StockReservation,
 } from "./types";
 
-const STORAGE_KEY = "norway-coffee-erp-demo-v7";
-const STORAGE_VERSION = 7 as const;
+const STORAGE_KEY = "norway-coffee-erp-demo-v8";
+const STORAGE_VERSION = 8 as const;
 
 interface PersistedState {
   version: typeof STORAGE_VERSION;
@@ -119,6 +133,9 @@ interface PersistedState {
   quotationDetails: QuotationDetail[];
   stockMoves: StockMove[];
   stockReservations: StockReservation[];
+  shipments: Shipment[];
+  shipmentDetails: ShipmentDetail[];
+  deliveryLogs: DeliveryStatusLog[];
   receivables: Receivable[];
   payments: Payment[];
   orderAudits: OrderAuditEntry[];
@@ -137,6 +154,9 @@ interface AppContextValue {
   orderDetails: SalesOrderDetail[];
   stockMoves: StockMove[];
   stockReservations: StockReservation[];
+  shipments: Shipment[];
+  shipmentDetails: ShipmentDetail[];
+  deliveryLogs: DeliveryStatusLog[];
   setProducts: Dispatch<SetStateAction<Product[]>>;
   setStockMoves: Dispatch<SetStateAction<StockMove[]>>;
   setStockReservations: Dispatch<SetStateAction<StockReservation[]>>;
@@ -169,6 +189,19 @@ interface AppContextValue {
   reopenSalesOrder: (orderId: string, reason: string) => OrderActionResult;
   shipConfirmedOrder: (orderId: string) => { ok: boolean; message?: string };
   unshipOrder: (orderId: string) => { ok: boolean; message?: string };
+  createShipmentFromOrder: (
+    input: Omit<CreateShipmentDraftInput, "role" | "user">,
+  ) => ShipmentActionResult;
+  saveShipmentDraft: (
+    input: Omit<UpdateShipmentDraftInput, "role" | "user">,
+  ) => ShipmentActionResult;
+  postShipmentDoc: (
+    shipmentId: string,
+    options?: { receiptNote?: string },
+  ) => ShipmentActionResult;
+  updateShipmentDelivery: (
+    input: Omit<UpdateDeliveryInput, "role" | "user">,
+  ) => ShipmentActionResult;
   /** @deprecated 僅相容舊 ClassroomSim；請用 cancel／confirm／ship */
   setOrderStatus: (
     orderId: string,
@@ -180,6 +213,12 @@ interface AppContextValue {
     note?: string,
   ) => InventoryActionResult;
   prepareWeek10Lab: () => { ok: boolean; message?: string };
+  /** 準備第 11 週起點：SO-B 已確認、T001 26/15/11、T002 8/1/7 */
+  prepareWeek11Lab: () => {
+    ok: boolean;
+    message?: string;
+    orderId?: string;
+  };
   createInventoryMove: (
     input: Omit<CreateMoveInput, "role"> & { role?: never },
   ) => InventoryActionResult;
@@ -258,6 +297,9 @@ function cloneSeed(): Omit<PersistedState, "version"> {
     quotationDetails: initialQuotationDetails.map((d) => ({ ...d })),
     stockMoves: initialStockMoves.map((m) => ({ ...m })),
     stockReservations: [],
+    shipments: [],
+    shipmentDetails: [],
+    deliveryLogs: [],
     receivables: initialReceivables.map((r) => ({ ...r })),
     payments: initialPayments.map((p) => ({ ...p })),
     orderAudits: [],
@@ -306,7 +348,8 @@ function migrateFromLegacy(parsed: {
     parsed?.version !== 3 &&
     parsed?.version !== 4 &&
     parsed?.version !== 5 &&
-    parsed?.version !== 6
+    parsed?.version !== 6 &&
+    parsed?.version !== 7
   ) {
     return null;
   }
@@ -355,6 +398,14 @@ function migrateFromLegacy(parsed: {
   );
   const normalizedDetails = orderDetails.map((d) => ensureDetailShape(d));
 
+  const extra = parsed as {
+    stockReservations?: StockReservation[];
+    shipments?: Shipment[];
+    shipmentDetails?: ShipmentDetail[];
+    deliveryLogs?: DeliveryStatusLog[];
+    orderAudits?: OrderAuditEntry[];
+  };
+
   return {
     version: STORAGE_VERSION,
     users: parsed.users as AppUser[],
@@ -365,18 +416,22 @@ function migrateFromLegacy(parsed: {
     quotations,
     quotationDetails,
     stockMoves,
-    stockReservations: Array.isArray(
-      (parsed as { stockReservations?: unknown }).stockReservations,
-    )
-      ? (
-          (parsed as { stockReservations: StockReservation[] })
-            .stockReservations as StockReservation[]
-        ).map((r) => ({ ...r }))
+    stockReservations: Array.isArray(extra.stockReservations)
+      ? extra.stockReservations.map((r) => ({ ...r }))
+      : [],
+    shipments: Array.isArray(extra.shipments)
+      ? extra.shipments.map((s) => ({ ...s }))
+      : [],
+    shipmentDetails: Array.isArray(extra.shipmentDetails)
+      ? extra.shipmentDetails.map((d) => ({ ...d }))
+      : [],
+    deliveryLogs: Array.isArray(extra.deliveryLogs)
+      ? extra.deliveryLogs.map((l) => ({ ...l }))
       : [],
     receivables,
     payments,
-    orderAudits: Array.isArray((parsed as { orderAudits?: unknown }).orderAudits)
-      ? ((parsed as { orderAudits: OrderAuditEntry[] }).orderAudits as OrderAuditEntry[])
+    orderAudits: Array.isArray(extra.orderAudits)
+      ? extra.orderAudits.map((a) => ({ ...a }))
       : [],
     currentUserId: parsed.currentUserId,
   };
@@ -387,15 +442,87 @@ function readStorage(): PersistedState | null {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("norway-coffee-erp-demo-v7") ??
       window.localStorage.getItem("norway-coffee-erp-demo-v5") ??
       window.localStorage.getItem("norway-coffee-erp-demo-v4");
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { version?: number; orders?: unknown[] };
-    // v7＝第 10 週庫存保留；舊版強制重載完整種子
-    if (parsed?.version !== 7) {
-      return null;
+    const parsed = JSON.parse(raw) as {
+      version?: number;
+      orders?: unknown[];
+      shipments?: Shipment[];
+      shipmentDetails?: ShipmentDetail[];
+      deliveryLogs?: DeliveryStatusLog[];
+      stockReservations?: StockReservation[];
+      orderAudits?: OrderAuditEntry[];
+    };
+    // v8＝第 11 週出貨；v7 升檔補空出貨陣列；缺欄一律容錯成 []
+    if (parsed?.version === 8 || parsed?.version === 7) {
+      const full = parsed as Partial<PersistedState> & { version?: number };
+      const seed = cloneSeed();
+      const products = Array.isArray(full.products)
+        ? normalizeProducts(full.products as unknown[])
+        : seed.products;
+      if (!products.length) return null;
+      const users = Array.isArray(full.users) && full.users.length
+        ? (full.users as AppUser[])
+        : seed.users;
+      return {
+        version: STORAGE_VERSION,
+        users,
+        orders: Array.isArray(full.orders)
+          ? (full.orders as SalesOrder[]).map((o) => ensureOrderShape(o))
+          : seed.orders,
+        orderDetails: Array.isArray(full.orderDetails)
+          ? (full.orderDetails as SalesOrderDetail[]).map((d) =>
+              ensureDetailShape(d),
+            )
+          : seed.orderDetails,
+        customers:
+          Array.isArray(full.customers) && full.customers.length
+            ? (full.customers as Customer[])
+            : seed.customers,
+        products,
+        quotations: Array.isArray(full.quotations)
+          ? (full.quotations as Quotation[])
+          : seed.quotations,
+        quotationDetails: Array.isArray(full.quotationDetails)
+          ? (full.quotationDetails as QuotationDetail[])
+          : seed.quotationDetails,
+        stockMoves: Array.isArray(full.stockMoves)
+          ? (full.stockMoves as StockMove[])
+          : seed.stockMoves,
+        stockReservations: Array.isArray(full.stockReservations)
+          ? (full.stockReservations as StockReservation[])
+          : [],
+        shipments: Array.isArray(full.shipments)
+          ? (full.shipments as Shipment[]).filter(
+              (s) => s && typeof s.Shipment_ID === "string",
+            )
+          : [],
+        shipmentDetails: Array.isArray(full.shipmentDetails)
+          ? (full.shipmentDetails as ShipmentDetail[]).filter(
+              (d) => d && typeof d.Shipment_ID === "string",
+            )
+          : [],
+        deliveryLogs: Array.isArray(full.deliveryLogs)
+          ? (full.deliveryLogs as DeliveryStatusLog[])
+          : [],
+        receivables: Array.isArray(full.receivables)
+          ? (full.receivables as Receivable[])
+          : seed.receivables,
+        payments: Array.isArray(full.payments)
+          ? (full.payments as Payment[])
+          : seed.payments,
+        orderAudits: Array.isArray(full.orderAudits)
+          ? (full.orderAudits as OrderAuditEntry[])
+          : [],
+        currentUserId:
+          typeof full.currentUserId === "string"
+            ? full.currentUserId
+            : "U001",
+      };
     }
-    return migrateFromLegacy(parsed);
+    return null;
   } catch {
     return null;
   }
@@ -424,6 +551,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [stockReservations, setStockReservations] = useState<StockReservation[]>(
     seed.stockReservations ?? [],
   );
+  const [shipments, setShipments] = useState<Shipment[]>(seed.shipments ?? []);
+  const [shipmentDetails, setShipmentDetails] = useState<ShipmentDetail[]>(
+    seed.shipmentDetails ?? [],
+  );
+  const [deliveryLogs, setDeliveryLogs] = useState<DeliveryStatusLog[]>(
+    seed.deliveryLogs ?? [],
+  );
   const [receivables, setReceivables] = useState<Receivable[]>(
     seed.receivables,
   );
@@ -443,6 +577,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const paymentsRef = useRef(payments);
   const stockMovesRef = useRef(stockMoves);
   const stockReservationsRef = useRef(stockReservations);
+  const shipmentsRef = useRef(shipments);
+  const shipmentDetailsRef = useRef(shipmentDetails);
+  const deliveryLogsRef = useRef(deliveryLogs);
   const usersRef = useRef(users);
   const currentUserIdRef = useRef(currentUserId);
   ordersRef.current = orders;
@@ -456,6 +593,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   paymentsRef.current = payments;
   stockMovesRef.current = stockMoves;
   stockReservationsRef.current = stockReservations;
+  shipmentsRef.current = shipments;
+  shipmentDetailsRef.current = shipmentDetails;
+  deliveryLogsRef.current = deliveryLogs;
   usersRef.current = users;
   currentUserIdRef.current = currentUserId;
   const [hydrated, setHydrated] = useState(false);
@@ -464,46 +604,162 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     try {
-      window.localStorage.removeItem("norway-coffee-erp-demo-v1");
-    } catch {
-      /* ignore */
-    }
-    const stored = readStorage();
-    if (stored) {
-      setUsers(stored.users.map((u) => ({ ...u })));
-      setOrders(stored.orders.map((o) => ({ ...o })));
-      setOrderDetails(stored.orderDetails.map((d) => ({ ...d })));
-      setCustomers(stored.customers.map((c) => ({ ...c })));
-      setProducts(stored.products.map((p) => ({ ...p })));
+      try {
+        window.localStorage.removeItem("norway-coffee-erp-demo-v1");
+      } catch {
+        /* ignore */
+      }
+      const stored = readStorage();
+      const seedData = cloneSeed();
+      const src = stored ?? seedData;
+      // 一律以陣列容錯套用，避免缺欄 .map 拋錯導致永遠卡在「載入中」白屏
+      const usersSafe = Array.isArray(src.users) ? src.users : seedData.users;
+      const ordersSafe = Array.isArray(src.orders)
+        ? src.orders.map((o) => ensureOrderShape(o))
+        : seedData.orders;
+      const detailsSafe = Array.isArray(src.orderDetails)
+        ? src.orderDetails.map((d) => ensureDetailShape(d))
+        : seedData.orderDetails;
+      const customersSafe = Array.isArray(src.customers)
+        ? src.customers
+        : seedData.customers;
+      const productsSafe = Array.isArray(src.products)
+        ? src.products
+        : seedData.products;
+      const quotesSafe = Array.isArray(src.quotations)
+        ? src.quotations
+        : seedData.quotations;
+      const qDetailsSafe = Array.isArray(src.quotationDetails)
+        ? src.quotationDetails
+        : seedData.quotationDetails;
+      const movesSafe = Array.isArray(src.stockMoves)
+        ? src.stockMoves
+        : seedData.stockMoves;
+      const reservesSafe = Array.isArray(src.stockReservations)
+        ? src.stockReservations
+        : [];
+      const shipsSafe = Array.isArray(src.shipments)
+        ? src.shipments.filter((s) => s && typeof s.Shipment_ID === "string")
+        : [];
+      const shipDetailsSafe = Array.isArray(src.shipmentDetails)
+        ? src.shipmentDetails.filter(
+            (d) => d && typeof d.Shipment_ID === "string",
+          )
+        : [];
+      const logsSafe = Array.isArray(src.deliveryLogs) ? src.deliveryLogs : [];
+      const arSafe = Array.isArray(src.receivables)
+        ? src.receivables
+        : seedData.receivables;
+      const paySafe = Array.isArray(src.payments)
+        ? src.payments
+        : seedData.payments;
+      const auditsSafe = Array.isArray(src.orderAudits) ? src.orderAudits : [];
+
+      usersRef.current = usersSafe.map((u) => ({ ...u }));
+      ordersRef.current = ordersSafe.map((o) => ({ ...o }));
+      orderDetailsRef.current = detailsSafe.map((d) => ({ ...d }));
+      customersRef.current = customersSafe.map((c) => ({ ...c }));
+      productsRef.current = productsSafe.map((p) => ({ ...p }));
       const scanned = applyExpiryScan(
-        stored.quotations.map((q) => ({ ...q })),
+        quotesSafe.map((q) => ({ ...q })),
         todayLocalDate(),
       );
-      setQuotations(scanned.quotations);
-      setQuotationDetails(stored.quotationDetails.map((d) => ({ ...d })));
-      setStockMoves(stored.stockMoves.map((m) => ({ ...m })));
-      setStockReservations(
-        (stored.stockReservations ?? []).map((r) => ({ ...r })),
-      );
-      setReceivables(stored.receivables.map((r) => ({ ...r })));
-      setPayments(stored.payments.map((p) => ({ ...p })));
-      setOrderAudits((stored.orderAudits ?? []).map((a) => ({ ...a })));
-      const active =
-        stored.users.find((u) => u.User_ID === stored.currentUserId)
+      quotationsRef.current = scanned.quotations;
+      quotationDetailsRef.current = qDetailsSafe.map((d) => ({ ...d }));
+      stockMovesRef.current = movesSafe.map((m) => ({ ...m }));
+      stockReservationsRef.current = reservesSafe.map((r) => ({ ...r }));
+      shipmentsRef.current = shipsSafe.map((s) => ({ ...s }));
+      shipmentDetailsRef.current = shipDetailsSafe.map((d) => ({ ...d }));
+      deliveryLogsRef.current = logsSafe.map((l) => ({ ...l }));
+      receivablesRef.current = arSafe.map((r) => ({ ...r }));
+      paymentsRef.current = paySafe.map((p) => ({ ...p }));
+      orderAuditsRef.current = auditsSafe.map((a) => ({ ...a }));
+      const activeId =
+        usersRef.current.find((u) => u.User_ID === src.currentUserId)
           ?.Is_Active !== false
-          ? stored.currentUserId
+          ? src.currentUserId || "U001"
           : "U001";
-      setCurrentUserId(active);
+      currentUserIdRef.current = activeId;
+
+      setUsers(usersRef.current);
+      setOrders(ordersRef.current);
+      setOrderDetails(orderDetailsRef.current);
+      setCustomers(customersRef.current);
+      setProducts(productsRef.current);
+      setQuotations(quotationsRef.current);
+      setQuotationDetails(quotationDetailsRef.current);
+      setStockMoves(stockMovesRef.current);
+      setStockReservations(stockReservationsRef.current);
+      setShipments(shipmentsRef.current);
+      setShipmentDetails(shipmentDetailsRef.current);
+      setDeliveryLogs(deliveryLogsRef.current);
+      setReceivables(receivablesRef.current);
+      setPayments(paymentsRef.current);
+      setOrderAudits(orderAuditsRef.current);
+      setCurrentUserId(activeId);
+      writeStorage({
+        version: STORAGE_VERSION,
+        users: usersRef.current,
+        orders: ordersRef.current,
+        orderDetails: orderDetailsRef.current,
+        customers: customersRef.current,
+        products: productsRef.current,
+        quotations: quotationsRef.current,
+        quotationDetails: quotationDetailsRef.current,
+        stockMoves: stockMovesRef.current,
+        stockReservations: stockReservationsRef.current,
+        shipments: shipmentsRef.current,
+        shipmentDetails: shipmentDetailsRef.current,
+        deliveryLogs: deliveryLogsRef.current,
+        receivables: receivablesRef.current,
+        payments: paymentsRef.current,
+        orderAudits: orderAuditsRef.current,
+        currentUserId: activeId,
+      });
       setLastSavedAt(Date.now());
-    } else {
-      const seedData = cloneSeed();
-      const scanned = applyExpiryScan(seedData.quotations, todayLocalDate());
-      seedData.quotations = scanned.quotations;
-      setQuotations(scanned.quotations);
-      writeStorage({ version: STORAGE_VERSION, ...seedData });
-      setLastSavedAt(Date.now());
+    } catch {
+      // 任何 schema 例外都回落種子，絕不能卡住 hydrated＝白屏
+      try {
+        const seedData = cloneSeed();
+        usersRef.current = seedData.users;
+        ordersRef.current = seedData.orders;
+        orderDetailsRef.current = seedData.orderDetails;
+        customersRef.current = seedData.customers;
+        productsRef.current = seedData.products;
+        quotationsRef.current = seedData.quotations;
+        quotationDetailsRef.current = seedData.quotationDetails;
+        stockMovesRef.current = seedData.stockMoves;
+        stockReservationsRef.current = [];
+        shipmentsRef.current = [];
+        shipmentDetailsRef.current = [];
+        deliveryLogsRef.current = [];
+        receivablesRef.current = seedData.receivables;
+        paymentsRef.current = seedData.payments;
+        orderAuditsRef.current = [];
+        currentUserIdRef.current = "U001";
+        setUsers(seedData.users);
+        setOrders(seedData.orders);
+        setOrderDetails(seedData.orderDetails);
+        setCustomers(seedData.customers);
+        setProducts(seedData.products);
+        setQuotations(seedData.quotations);
+        setQuotationDetails(seedData.quotationDetails);
+        setStockMoves(seedData.stockMoves);
+        setStockReservations([]);
+        setShipments([]);
+        setShipmentDetails([]);
+        setDeliveryLogs([]);
+        setReceivables(seedData.receivables);
+        setPayments(seedData.payments);
+        setOrderAudits([]);
+        setCurrentUserId("U001");
+        writeStorage({ version: STORAGE_VERSION, ...seedData });
+      } catch {
+        /* last resort: still mark hydrated */
+      }
+    } finally {
+      setHydrated(true);
     }
-    setHydrated(true);
   }, []);
 
   useEffect(() => {
@@ -519,6 +775,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotationDetails,
       stockMoves,
       stockReservations,
+      shipments,
+      shipmentDetails,
+      deliveryLogs,
       receivables,
       payments,
       orderAudits,
@@ -536,6 +795,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     quotationDetails,
     stockMoves,
     stockReservations,
+    shipments,
+    shipmentDetails,
+    deliveryLogs,
     receivables,
     orderAudits,
     payments,
@@ -560,6 +822,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setStockReservations(
           (parsed.stockReservations ?? []).map((r) => ({ ...r })),
         );
+        setShipments((parsed.shipments ?? []).map((s) => ({ ...s })));
+        setShipmentDetails(
+          (parsed.shipmentDetails ?? []).map((d) => ({ ...d })),
+        );
+        setDeliveryLogs((parsed.deliveryLogs ?? []).map((l) => ({ ...l })));
         setReceivables(parsed.receivables.map((r) => ({ ...r })));
         setPayments(parsed.payments.map((p) => ({ ...p })));
         setCurrentUserId(parsed.currentUserId);
@@ -783,6 +1050,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (orderId: string, reason: string): OrderActionResult => {
       const order = ordersRef.current.find((o) => o.Order_ID === orderId);
       if (!order) return { ok: false, message: "找不到該訂單。" };
+      if (orderHasShipments(orderId, shipmentsRef.current)) {
+        return {
+          ok: false,
+          message:
+            "此訂單已有出貨單，本週不可沿用第 8 週取消；請保留出貨紀錄待管理者處理。",
+        };
+      }
       const user = activeUser();
       const result = cancelOrderRule(
         order,
@@ -822,6 +1096,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (orderId: string, reason: string): OrderActionResult => {
       const order = ordersRef.current.find((o) => o.Order_ID === orderId);
       if (!order) return { ok: false, message: "找不到該訂單。" };
+      if (orderHasShipments(orderId, shipmentsRef.current)) {
+        return {
+          ok: false,
+          message:
+            "此訂單已有出貨單，本週不可沿用第 8 週重開；請保留出貨紀錄待管理者處理。",
+        };
+      }
       const user = activeUser();
       const result = reopenOrderRule(
         order,
@@ -919,6 +1200,127 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [orders, orderDetails, products, stockMoves, stockReservations, receivables, payments],
   );
 
+  const applyShipmentResult = useCallback((result: ShipmentActionResult) => {
+    if (result.shipments) {
+      shipmentsRef.current = result.shipments;
+      setShipments(result.shipments);
+    }
+    if (result.shipmentDetails) {
+      shipmentDetailsRef.current = result.shipmentDetails;
+      setShipmentDetails(result.shipmentDetails);
+    }
+    if (result.products) {
+      productsRef.current = result.products;
+      setProducts(result.products);
+    }
+    if (result.moves) {
+      stockMovesRef.current = result.moves;
+      setStockMoves(result.moves);
+    }
+    if (result.reservations) {
+      stockReservationsRef.current = result.reservations;
+      setStockReservations(result.reservations);
+    }
+    if (result.orderDetails) {
+      orderDetailsRef.current = result.orderDetails;
+      setOrderDetails(result.orderDetails);
+    }
+    if (result.order) {
+      ordersRef.current = ordersRef.current.map((o) =>
+        o.Order_ID === result.order!.Order_ID ? result.order! : o,
+      );
+      setOrders(ordersRef.current);
+    }
+    if (result.deliveryLogs) {
+      deliveryLogsRef.current = result.deliveryLogs;
+      setDeliveryLogs(result.deliveryLogs);
+    }
+  }, []);
+
+  const createShipmentFromOrder = useCallback(
+    (
+      input: Omit<CreateShipmentDraftInput, "role" | "user">,
+    ): ShipmentActionResult => {
+      const user = activeUser();
+      const result = createShipmentDraft(
+        { ...input, role: user.Role, user },
+        ordersRef.current,
+        orderDetailsRef.current,
+        stockReservationsRef.current,
+        productsRef.current,
+        shipmentsRef.current,
+        shipmentDetailsRef.current,
+      );
+      if (result.ok) applyShipmentResult(result);
+      return result;
+    },
+    [activeUser, applyShipmentResult],
+  );
+
+  const saveShipmentDraft = useCallback(
+    (
+      input: Omit<UpdateShipmentDraftInput, "role" | "user">,
+    ): ShipmentActionResult => {
+      const user = activeUser();
+      const result = updateShipmentDraft(
+        { ...input, role: user.Role, user },
+        ordersRef.current,
+        orderDetailsRef.current,
+        stockReservationsRef.current,
+        productsRef.current,
+        shipmentsRef.current,
+        shipmentDetailsRef.current,
+      );
+      if (result.ok) applyShipmentResult(result);
+      return result;
+    },
+    [activeUser, applyShipmentResult],
+  );
+
+  const postShipmentDoc = useCallback(
+    (
+      shipmentId: string,
+      options?: { receiptNote?: string },
+    ): ShipmentActionResult => {
+      const user = activeUser();
+      const result = postShipment(
+        shipmentId,
+        user.Role,
+        user,
+        ordersRef.current,
+        orderDetailsRef.current,
+        productsRef.current,
+        stockMovesRef.current,
+        stockReservationsRef.current,
+        shipmentsRef.current,
+        shipmentDetailsRef.current,
+        deliveryLogsRef.current,
+        options,
+      );
+      if (result.ok) applyShipmentResult(result);
+      return result;
+    },
+    [activeUser, applyShipmentResult],
+  );
+
+  const updateShipmentDelivery = useCallback(
+    (
+      input: Omit<UpdateDeliveryInput, "role" | "user">,
+    ): ShipmentActionResult => {
+      const user = activeUser();
+      const result = updateDeliveryStatus(
+        { ...input, role: user.Role, user },
+        shipmentsRef.current,
+        deliveryLogsRef.current,
+        productsRef.current,
+        stockReservationsRef.current,
+      );
+      if (result.ok) applyShipmentResult(result);
+      return result;
+    },
+    [activeUser, applyShipmentResult],
+  );
+
   const setOrderStatus = useCallback(
     (orderId: string, status: string) => {
       if (status === "已出貨" || status === "ship") {
@@ -974,6 +1376,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProducts(nextProducts);
     stockReservationsRef.current = [];
     setStockReservations([]);
+    shipmentsRef.current = [];
+    setShipments([]);
+    shipmentDetailsRef.current = [];
+    setShipmentDetails([]);
+    deliveryLogsRef.current = [];
+    setDeliveryLogs([]);
     // 清掉與教學品相關草稿／舊異動，避免干擾期初
     const kept = stockMovesRef.current.filter(
       (m) => m.Product_ID !== "P002" && m.Product_ID !== "P011",
@@ -1061,6 +1469,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ),
     [],
   );
+
+  /** 對外 setState 必須同步 ref，否則驗收／出貨讀到過期資料或漏擋盤點異常 */
+  const setProductsSynced: Dispatch<SetStateAction<Product[]>> = useCallback(
+    (action) => {
+      setProducts((prev) => {
+        const next = typeof action === "function" ? action(prev) : action;
+        productsRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
+  const setStockMovesSynced: Dispatch<SetStateAction<StockMove[]>> =
+    useCallback((action) => {
+      setStockMoves((prev) => {
+        const next = typeof action === "function" ? action(prev) : action;
+        stockMovesRef.current = next;
+        return next;
+      });
+    }, []);
+  const setStockReservationsSynced: Dispatch<
+    SetStateAction<StockReservation[]>
+  > = useCallback((action) => {
+    setStockReservations((prev) => {
+      const next = typeof action === "function" ? action(prev) : action;
+      stockReservationsRef.current = next;
+      return next;
+    });
+  }, []);
 
   const recordArPayment = useCallback(
     (
@@ -1325,6 +1762,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotationDetailsRef.current = next.quotationDetails;
       stockMovesRef.current = next.stockMoves;
       stockReservationsRef.current = next.stockReservations ?? [];
+      shipmentsRef.current = next.shipments ?? [];
+      shipmentDetailsRef.current = next.shipmentDetails ?? [];
+      deliveryLogsRef.current = next.deliveryLogs ?? [];
       receivablesRef.current = next.receivables;
       paymentsRef.current = next.payments;
       orderAuditsRef.current = next.orderAudits ?? [];
@@ -1338,6 +1778,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setQuotationDetails(next.quotationDetails);
       setStockMoves(next.stockMoves);
       setStockReservations(next.stockReservations ?? []);
+      setShipments(next.shipments ?? []);
+      setShipmentDetails(next.shipmentDetails ?? []);
+      setDeliveryLogs(next.deliveryLogs ?? []);
       setReceivables(next.receivables);
       setPayments(next.payments);
       setOrderAudits(next.orderAudits ?? []);
@@ -1357,6 +1800,129 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const resetDemoData = useCallback(() => {
     applySeedLike(cloneSeed());
   }, [applySeedLike]);
+
+  /** 第 11 週起點＝第 10 週 I09 完成：SO-B 確認、P002 26/15/11、P011 8/1/7 */
+  const prepareWeek11Lab = useCallback(() => {
+    switchUser("U001");
+    resetDemoData();
+    prepareWeek10Lab();
+
+    const openA = createInventoryMove({
+      productId: "P002",
+      moveType: "期初",
+      qty: 20,
+      asDraft: true,
+      note: "W11 期初 P002",
+      sourceDocId: "OP-W11-001",
+    });
+    const openB = createInventoryMove({
+      productId: "P011",
+      moveType: "期初",
+      qty: 8,
+      asDraft: true,
+      note: "W11 期初 P011",
+      sourceDocId: "OP-W11-002",
+    });
+    if (openA.moves?.length) {
+      postInventoryMove(openA.moves[openA.moves.length - 1].Move_ID);
+    }
+    if (openB.moves?.length) {
+      postInventoryMove(openB.moves[openB.moves.length - 1].Move_ID);
+    }
+
+    const soA = convertAcceptedQuote("QT-20261118-001", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    const soB = convertAcceptedQuote("QT-20261118-002", {
+      asOfDate: WEEK8_BUSINESS_DATE,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+    });
+    const idA = soA.order?.Order_ID ?? "";
+    const idB = soB.order?.Order_ID ?? "";
+    saveDraftOrder(idA, {
+      deliveryAgreed: true,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+      shipToName: "教學收貨人",
+      shipToAddress: "台南市教學路 100 號",
+    });
+    saveDraftOrder(idB, {
+      deliveryAgreed: true,
+      requestedDate: "2026-11-23",
+      promisedDate: "2026-11-23",
+      shipToName: "教學收貨人",
+      shipToAddress: "台南市教學路 100 號",
+    });
+    confirmSalesOrder(idA);
+    createInventoryMove({
+      productId: "P002",
+      moveType: "入庫",
+      qty: 10,
+      asDraft: false,
+      note: "補貨 10",
+      sourceDocId: "IN-W11-001",
+    });
+    confirmSalesOrder(idB);
+    cancelSalesOrder(idA, "第11週案例取消 SO-A");
+    createInventoryMove({
+      productId: "P002",
+      moveType: "出庫",
+      qty: 3,
+      asDraft: false,
+      note: "非銷售領用 3",
+      sourceDocId: "OUT-W11-001",
+    });
+    createInventoryMove({
+      productId: "P002",
+      moveType: "盤點調整",
+      qty: 0,
+      countedQty: 26,
+      asDraft: false,
+      note: "實盤 26",
+      reason: "盤點差異",
+      sourceDocId: "ST-W11-001",
+    });
+    reopenSalesOrder(idB, "改量驗收");
+    const dP002 = orderDetailsRef.current.find(
+      (d) => d.Order_ID === idB && d.Product_ID === "P002",
+    );
+    if (dP002) {
+      saveDraftOrder(idB, {
+        qtyByDetailId: { [dP002.Detail_ID]: 15 },
+        deliveryAgreed: true,
+        requestedDate: "2026-11-23",
+        promisedDate: "2026-11-23",
+        shipToName: "教學收貨人",
+        shipToAddress: "台南市教學路 100 號",
+      });
+    }
+    confirmSalesOrder(idB);
+    shipmentsRef.current = [];
+    setShipments([]);
+    shipmentDetailsRef.current = [];
+    setShipmentDetails([]);
+    deliveryLogsRef.current = [];
+    setDeliveryLogs([]);
+    return {
+      ok: true,
+      message: `第11週起點就緒：SO-B=${idB}（P002 26/15/11 · P011 8/1/7）`,
+      orderId: idB,
+    };
+  }, [
+    switchUser,
+    resetDemoData,
+    prepareWeek10Lab,
+    createInventoryMove,
+    postInventoryMove,
+    convertAcceptedQuote,
+    saveDraftOrder,
+    confirmSalesOrder,
+    cancelSalesOrder,
+    reopenSalesOrder,
+  ]);
 
   const loadBaselineData = useCallback(() => {
     const next = cloneSeed();
@@ -1385,6 +1951,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       quotationDetails,
       stockMoves: stockMovesRef.current,
       stockReservations: stockReservationsRef.current,
+      shipments: shipmentsRef.current,
+      shipmentDetails: shipmentDetailsRef.current,
+      deliveryLogs: deliveryLogsRef.current,
       receivables: receivablesRef.current,
       payments: paymentsRef.current,
       orderAudits: orderAuditsRef.current,
@@ -1397,18 +1966,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (raw: string) => {
       try {
         const parsed = JSON.parse(raw) as { version?: number };
-        // v7 直接套用；舊版走 migrate
-        if (parsed?.version === STORAGE_VERSION) {
+        if (parsed?.version === STORAGE_VERSION || parsed?.version === 7) {
           const full = parsed as PersistedState;
           const rest = { ...full };
           delete (rest as { version?: number }).version;
           if (!Array.isArray(rest.stockReservations)) {
             rest.stockReservations = [];
           }
+          if (!Array.isArray(rest.shipments)) rest.shipments = [];
+          if (!Array.isArray(rest.shipmentDetails)) rest.shipmentDetails = [];
+          if (!Array.isArray(rest.deliveryLogs)) rest.deliveryLogs = [];
           applySeedLike(rest as Omit<PersistedState, "version">);
           return {
             ok: true,
-            message: `已匯入 ${full.orders.length} 張訂單、${full.quotations.length} 張報價、${(full.stockReservations ?? []).length} 筆保留。`,
+            message: `已匯入 ${full.orders.length} 張訂單、${(full.shipments ?? []).length} 張出貨、${(full.stockReservations ?? []).length} 筆保留。`,
           };
         }
         const migrated = migrateFromLegacy(
@@ -1417,7 +1988,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!migrated) {
           return {
             ok: false,
-            message: "無法匯入：請使用本系統匯出的 v7 JSON。",
+            message: "無法匯入：請使用本系統匯出的 v8／v7 JSON。",
           };
         }
         const rest = { ...migrated };
@@ -1446,9 +2017,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     orderDetails,
     stockMoves,
     stockReservations,
-    setProducts,
-    setStockMoves,
-    setStockReservations,
+    shipments,
+    shipmentDetails,
+    deliveryLogs,
+    setProducts: setProductsSynced,
+    setStockMoves: setStockMovesSynced,
+    setStockReservations: setStockReservationsSynced,
     receivables,
     payments,
     orderAudits,
@@ -1466,8 +2040,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     reopenSalesOrder,
     shipConfirmedOrder,
     unshipOrder,
+    createShipmentFromOrder,
+    saveShipmentDraft,
+    postShipmentDoc,
+    updateShipmentDelivery,
     adjustInventory,
     prepareWeek10Lab,
+    prepareWeek11Lab,
     createInventoryMove,
     postInventoryMove,
     setProductSafety,
